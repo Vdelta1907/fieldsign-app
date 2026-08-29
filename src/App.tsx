@@ -1,1398 +1,835 @@
-import { useState, useEffect, useRef } from 'react';
-import './index.css';
-
-// --- CONFIGURATION: INSERT YOUR SUPABASE CREDENTIALS HERE ---
+import React, { useState, useEffect, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
+// --- Supabase Credentials ---
 const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
+const SUPABASE_ANON_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
 
-interface Preset {
-  label: string;
-  cost: number;
-  desc: string;
-}
-
-interface OrderRecord {
-  id: string;
-  order_type: string;
-  contractor_company: string;
-  contractor_logo?: string;
-  contractor_license?: string;
-  contractor_phone?: string;
-  contractor_email?: string;
-  custom_terms?: string;
-  project_title: string;
-  client_name: string;
-  client_phone: string;
-  description: string;
-  cost: number;
-  status: string;
-  payment_status?: string;
-  payment_link?: string;
-  photo_data?: string;
-  photo_data_2?: string;
-  signature_data?: string;
-  signed_at?: string;
-  created_at?: string;
-}
-
-interface ContractorProfile {
-  companyName: string;
-  licenseNumber: string;
-  phone: string;
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// --- Type Definitions ---
+export interface ContractorProfile {
+  businessName: string;
   email: string;
-  logoDataUrl: string;
-  customTerms: string;
-  stripePaymentLink: string;
-  requirePaymentUpfront: boolean;
+  phone: string;
+  address: string;
+  enableInstantPayment: boolean;
+  paymentInstructions: string;
 }
 
-const DEFAULT_TERMS = "The undersigned authorizes the contractor to execute the described modifications/services. All labor, equipment, and materials will be provided in accordance with the specified terms. Payment for authorized extra work becomes due upon completion or in accordance with original project milestones. Digital signatures captured here carry full legal binding authority under the Uniform Electronic Transactions Act (UETA).";
+export interface OrderItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
 
-const PRESETS: Preset[] = [
-  { label: 'Additional Coat of Paint', cost: 280, desc: 'Client requested extra coat of premium satin finish on living room walls.' },
-  { label: 'Subfloor Drywall Patch', cost: 195, desc: 'Cut out damaged 2x2 section and install reinforced backing plate.' },
-  { label: 'Add Dedicated Outlet', cost: 225, desc: 'Run 12/2 Romex line for kitchen island microwave outlet.' }
-];
+export interface Order {
+  id: string;
+  orderNumber: string;
+  createdAt: string;
+  contractor: ContractorProfile;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  clientAddress: string;
+  items: OrderItem[];
+  notes: string;
+  totalAmount: number;
+  signature?: string;
+  signedAt?: string;
+  paymentStatus: 'UNPAID' | 'PENDING' | 'PAID';
+  enableInstantPayment: boolean; // Controls button visibility for client
+}
+
+// --- Default Configuration ---
+const DEFAULT_CONTRACTOR_PROFILE: ContractorProfile = {
+  businessName: '',
+  email: '',
+  phone: '',
+  address: '',
+  enableInstantPayment: false, // Defaulted to disabled
+  paymentInstructions: 'Please remit payment upon invoice receipt.'
+};
 
 export default function App() {
-  const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
-  const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
-  
-  const [isClientMode, setIsClientMode] = useState<boolean>(false);
-  const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
-
-  const [profile, setProfile] = useState<ContractorProfile>(() => {
+  // --- Contractor Settings State ---
+  const [contractorProfile, setContractorProfile] = useState<ContractorProfile>(() => {
     const saved = localStorage.getItem('fieldsign_contractor_profile');
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return {
-      companyName: 'Fieldsign',
-      licenseNumber: 'GC-VA-89421A',
-      phone: '(000) 000-0000',
-      email: 'Info@fieldsign.com',
-      logoDataUrl: '',
-      customTerms: DEFAULT_TERMS,
-      stripePaymentLink: 'https://buy.stripe.com/test_demo',
-      requirePaymentUpfront: true
-    };
-  });
-
-  // Active Job Form State
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  const [projectTitle, setProjectTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [cost, setCost] = useState('');
-  const [orderPaymentLink, setOrderPaymentLink] = useState('');
-  const [photoData1, setPhotoData1] = useState<string>('');
-  const [photoData2, setPhotoData2] = useState<string>('');
-  
-  // Active Bound Contractor Metadata for loaded orders
-  const [orderContractorName, setOrderContractorName] = useState('');
-  const [orderContractorLogo, setOrderContractorLogo] = useState('');
-  const [orderContractorLicense, setOrderContractorLicense] = useState('');
-  const [orderContractorPhone, setOrderContractorPhone] = useState('');
-  const [orderContractorEmail, setOrderContractorEmail] = useState('');
-  const [orderTerms, setOrderTerms] = useState('');
-
-  // Speech Recognition Active Indicator
-  const [activeListeningField, setActiveListeningField] = useState<string | null>(null);
-
-  // Database & Active Order State
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
-  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [signatureData, setSignatureData] = useState<string | null>(null);
-  const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
-  const [acceptedTerms, setAcceptedTerms] = useState<boolean>(true);
-  const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'paid'>('unpaid');
-
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const isDrawing = useRef(false);
-  const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
-    setFilterTab(prev => prev === tab ? null : tab);
-  };
-
-  // Speech Recognition (Dictation) Engine
-  const startDictation = (field: string, setter: (val: string | ((prev: string) => string)) => void) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice dictation is not supported on this browser. Please use the microphone on your keyboard.");
-      return;
-    }
-
-    if (activeListeningField === field) {
-      setActiveListeningField(null);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-
-      setActiveListeningField(field);
-
-      recognition.onresult = (event: any) => {
-        const speechText = event.results[0][0].transcript;
-        setter(prev => (prev ? `${prev} ${speechText}` : speechText));
-        setActiveListeningField(null);
-      };
-
-      recognition.onerror = () => {
-        setActiveListeningField(null);
-      };
-
-      recognition.onend = () => {
-        setActiveListeningField(null);
-      };
-
-      recognition.start();
-    } catch (e) {
-      setActiveListeningField(null);
-    }
-  };
-
-  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, orderId?: string, type?: string) => {
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const targetId = orderId || currentOrderId;
-    const currentType = type || orderType;
-    const url = targetId ? `${window.location.origin}?id=${targetId}` : window.location.href;
-    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${currentType} for "${project || 'Job'}" ($${amount}): ${url}`;
-    window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
-  };
-
-  const deleteOrderPermanently = async (orderId: string) => {
-    if (!confirm("Are you sure you want to permanently delete this order? This cannot be undone.")) {
-      return;
-    }
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}`, {
-        method: 'DELETE',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      setOrders(prev => prev.filter(o => o.id !== orderId));
-    } catch (err) {
-      console.error("Failed to delete order:", err);
-      alert("Error deleting record.");
-    }
-  };
-
-  const saveProfile = (newProfile: ContractorProfile) => {
-    setProfile(newProfile);
-    localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(newProfile));
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => saveProfile({ ...profile, logoDataUrl: reader.result as string });
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const processImageUpload = (file: File, callback: (base64: string) => void) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 800;
-        let width = img.width;
-        let height = img.height;
-        if (width > height && width > maxDim) {
-          height *= maxDim / width;
-          width = maxDim;
-        } else if (height > maxDim) {
-          width *= maxDim / height;
-          height = maxDim;
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        callback(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const orderIdParam = params.get('id');
-    if (orderIdParam) {
-      setIsClientMode(true);
-      loadOrderFromDb(orderIdParam);
-    } else {
-      setIsClientMode(false);
-      fetchDashboardOrders();
-    }
-  }, []);
-
-  const fetchDashboardOrders = async () => {
-    setIsLoadingOrders(true);
-    try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setOrders(data);
-      }
-    } catch (err) {
-      console.error('Error fetching dashboard orders:', err);
-    } finally {
-      setIsLoadingOrders(false);
-    }
-  };
-
-  const loadOrderFromDb = async (orderId: string) => {
-    try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}&select=*`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const o = data[0];
-        setCurrentOrderId(o.id);
-        setOrderType(o.order_type === 'New Job Agreement' ? 'New Job Agreement' : 'Change Order');
-        setProjectTitle(o.project_title || '');
-        setClientName(o.client_name || '');
-        setClientPhone(o.client_phone || '');
-        setDescription(o.description || '');
-        setCost(o.cost?.toString() || '0');
-        setPhotoData1(o.photo_data || '');
-        setPhotoData2(o.photo_data_2 || '');
-        setPaymentStatus(o.payment_status || 'unpaid');
-        setOrderPaymentLink(o.payment_link || profile.stripePaymentLink);
-
-        // Map Saved Contractor Profile
-        setOrderContractorName(o.contractor_company || profile.companyName);
-        setOrderContractorLogo(o.contractor_logo || profile.logoDataUrl);
-        setOrderContractorLicense(o.contractor_license || profile.licenseNumber);
-        setOrderContractorPhone(o.contractor_phone || profile.phone);
-        setOrderContractorEmail(o.contractor_email || profile.email);
-        setOrderTerms(o.custom_terms || profile.customTerms || DEFAULT_TERMS);
-
-        if (o.status === 'signed') {
-          setSignatureData(o.signature_data);
-          setSignTimestamp(o.signed_at);
-          setView('signed_receipt');
-        } else {
-          setView('client_review');
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching order:', err);
-    }
-  };
-
-  const applyPreset = (preset: Preset) => {
-    setDescription(preset.desc);
-    setCost(preset.cost.toString());
-  };
-
-  const createOrder = async () => {
-    if (!description || !cost) {
-      alert('Please fill out the scope description and cost.');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const payload: Record<string, any> = {
-        order_type: orderType,
-        contractor_company: profile.companyName,
-        contractor_logo: profile.logoDataUrl || null,
-        contractor_license: profile.licenseNumber || null,
-        contractor_phone: profile.phone || null,
-        contractor_email: profile.email || null,
-        custom_terms: profile.customTerms || DEFAULT_TERMS,
-        project_title: projectTitle || 'Untitled Project',
-        client_name: clientName || 'Client',
-        client_phone: clientPhone || '',
-        description: description,
-        cost: parseFloat(cost) || 0,
-        status: 'pending',
-        photo_data: photoData1 || null,
-        photo_data_2: photoData2 || null,
-        payment_status: 'unpaid',
-        payment_link: profile.stripePaymentLink
-      };
-
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Supabase Error Response:", errorText);
-        throw new Error(`Database error (${response.status}): Make sure you ran the SQL columns in Supabase.`);
-      }
-
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const savedOrder = data[0];
-        setCurrentOrderId(savedOrder.id);
-        setOrderPaymentLink(profile.stripePaymentLink);
-        await fetchDashboardOrders();
-        setView('dashboard');
-        triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.id, orderType);
-      }
-    } catch (err: any) {
-      console.error('Database save error:', err);
-      alert(err.message || 'Failed to save order to Supabase.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const getCoordinates = (e: any) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    if (e.touches && e.touches.length > 0) {
-      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
-    } else if (e.clientX !== undefined) {
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    }
-    return null;
-  };
-
-  const handleStartDraw = (e: any) => {
-    if (e.cancelable) e.preventDefault();
-    isDrawing.current = true;
-    const coords = getCoordinates(e);
-    const canvas = canvasRef.current;
-    if (!coords || !canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.beginPath();
-    ctx.moveTo(coords.x, coords.y);
-  };
-
-  const handleDraw = (e: any) => {
-    if (e.cancelable) e.preventDefault();
-    if (!isDrawing.current) return;
-    const coords = getCoordinates(e);
-    const canvas = canvasRef.current;
-    if (!coords || !canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.lineTo(coords.x, coords.y);
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  };
-
-  const handleStopDraw = () => {
-    isDrawing.current = false;
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-  };
-  const finalizeSignatureAndPay = async (openStripe: boolean = false) => {
-    if (!acceptedTerms) {
-      alert("Please accept the authorization terms before signing.");
-      return;
-    }
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const signature = canvas.toDataURL();
-    const timestamp = new Date().toLocaleString();
-    setSignatureData(signature);
-    setSignTimestamp(timestamp);
-
-    if (currentOrderId) {
       try {
-        await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${currentOrderId}`, {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            status: 'signed',
-            payment_status: openStripe ? 'paid' : 'unpaid',
-            signature_data: signature,
-            signed_at: timestamp
-          })
-        });
-        fetchDashboardOrders();
-      } catch (err) {
-        console.error('Error recording signature:', err);
-      }
-    }
-
-    if (openStripe && (orderPaymentLink || profile.stripePaymentLink)) {
-      window.open(orderPaymentLink || profile.stripePaymentLink, '_blank');
-      setPaymentStatus('paid');
-    }
-
-    setView('signed_receipt');
-  };
-
-  const handleDownloadPdf = (targetDoc?: { 
-    company?: string; 
-    logo?: string;
-    license?: string;
-    phone?: string;
-    email?: string;
-    terms?: string;
-    type?: string; 
-    project?: string; 
-    client?: string; 
-    clientPhone?: string; 
-    desc?: string; 
-    amount?: string | number; 
-    sig?: string; 
-    date?: string; 
-    docId?: string; 
-    isPaid?: boolean; 
-    photo1?: string; 
-    photo2?: string 
-  }) => {
-    const { jsPDF } = (window as any).jspdf || {};
-    if (!jsPDF) {
-      alert("PDF library is loading. Please try again.");
-      return;
-    }
-
-    const dCompany = targetDoc?.company || orderContractorName || profile.companyName;
-    const dLogo = targetDoc?.logo || orderContractorLogo || profile.logoDataUrl;
-    const dLicense = targetDoc?.license || orderContractorLicense || profile.licenseNumber;
-    const dContractorPhone = targetDoc?.phone || orderContractorPhone || profile.phone;
-    const dContractorEmail = targetDoc?.email || orderContractorEmail || profile.email;
-    const dTerms = targetDoc?.terms || orderTerms || profile.customTerms || DEFAULT_TERMS;
-
-    const dType = targetDoc?.type || orderType;
-    const dProject = targetDoc?.project || projectTitle;
-    const dClient = targetDoc?.client || clientName;
-    const dClientPhone = targetDoc?.clientPhone || clientPhone;
-    const dDesc = targetDoc?.desc || description;
-    const dCost = targetDoc?.amount || cost;
-    const dSig = targetDoc?.sig || signatureData;
-    const dPhoto1 = targetDoc?.photo1 || photoData1;
-    const dPhoto2 = targetDoc?.photo2 || photoData2;
-    const dTimestamp = targetDoc?.date || signTimestamp;
-    const dId = targetDoc?.docId || currentOrderId;
-    const dPaid = targetDoc?.isPaid !== undefined ? targetDoc.isPaid : (paymentStatus === 'paid');
-
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
-    const primaryColor = [15, 23, 42];
-    const accentColor = [245, 158, 11];
-    const grayText = [100, 116, 139];
-
-    doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
-    doc.rect(0, 0, 612, 10, 'F');
-
-    let textLeftMargin = 40;
-    if (dLogo) {
-      try {
-        doc.addImage(dLogo, 'JPEG', 40, 26, 45, 45);
-        textLeftMargin = 95;
+        return JSON.parse(saved);
       } catch (e) {
-        textLeftMargin = 40;
+        console.error('Failed to parse saved contractor profile', e);
       }
     }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text(dCompany.toUpperCase(), textLeftMargin, 42);
-
-    doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text(`License: ${dLicense || 'N/A'}  •  Phone: ${dContractorPhone}  •  ${dContractorEmail}`, textLeftMargin, 56);
-    doc.text('OFFICIAL WORK AUTHORIZATION & PAYMENT RECORD', textLeftMargin, 68);
-
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.roundedRect(400, 30, 172, 26, 4, 4, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text(dType.toUpperCase(), 486, 47, { align: 'center' });
-
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(1);
-    doc.line(40, 80, 572, 80);
-
-    // Details Grid
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(40, 92, 258, 65, 6, 6, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(40, 92, 258, 65, 6, 6, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text('PROJECT DETAILS', 52, 106);
-
-    doc.setFontSize(10);
-    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text(`Project: ${dProject}`, 52, 122);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(`Ref: ${dId ? dId.slice(0, 8) : 'RECORD'}  •  Date: ${new Date().toLocaleDateString()}`, 52, 138);
-
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(314, 92, 258, 65, 6, 6, 'F');
-    doc.roundedRect(314, 92, 258, 65, 6, 6, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text('CLIENT & STATUS', 326, 106);
-
-    doc.setFontSize(10);
-    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text(`Client: ${dClient}`, 326, 122);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(`Phone: ${dClientPhone}  •  Status: ${dPaid ? 'Direct Paid' : 'Authorized'}`, 326, 138);
-
-    // Scope & Dual Photo Section
-    const hasPhotos = dPhoto1 || dPhoto2;
-    const scopeHeight = hasPhotos ? 170 : 120;
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(40, 165, 532, scopeHeight, 6, 6, 'F');
-    doc.roundedRect(40, 165, 532, scopeHeight, 6, 6, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text('AUTHORIZED SCOPE & EVIDENCE', 52, 180);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-
-    if (hasPhotos) {
-      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 250), 52, 196);
-      if (dPhoto1) {
-        try { doc.addImage(dPhoto1, 'JPEG', 315, 175, 115, 105); } catch (e) {}
-      }
-      if (dPhoto2) {
-        try { doc.addImage(dPhoto2, 'JPEG', 440, 175, 115, 105); } catch (e) {}
-      }
-    } else {
-      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 508), 52, 196);
-    }
-
-    const costY = 165 + scopeHeight + 10;
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.roundedRect(40, costY, 532, 40, 6, 6, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(255, 255, 255);
-    doc.text('TOTAL AUTHORIZED ADJUSTMENT:', 56, costY + 25);
-
-    doc.setFontSize(16);
-    doc.setTextColor(251, 191, 36);
-    doc.text(`$${dCost || '0.00'} USD`, 556, costY + 26, { align: 'right' });
-
-    const termsY = costY + 48;
-    doc.setFillColor(254, 252, 232);
-    doc.roundedRect(40, termsY, 532, 46, 4, 4, 'F');
-    doc.setDrawColor(254, 240, 138);
-    doc.roundedRect(40, termsY, 532, 46, 4, 4, 'D');
-
-    doc.setFontSize(7.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(146, 64, 14);
-    doc.text('LEGAL AUTHORIZATION & PAYMENT TERMS:', 50, termsY + 12);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(113, 63, 18);
-    doc.text(doc.splitTextToSize(dTerms, 512), 50, termsY + 24);
-
-    const sigY = termsY + 54;
-    doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(40, sigY, 532, 80, 6, 6, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text("CLIENT'S AUTHORIZED ELECTRONIC SIGNATURE", 52, sigY + 14);
-
-    if (dSig) {
-      try { doc.addImage(dSig, 'PNG', 52, sigY + 18, 200, 48); } catch (e) {}
-    }
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text(`Timestamp: ${dTimestamp || new Date().toLocaleString()}`, 350, sigY + 38);
-    doc.text(`Status: ${dPaid ? 'Paid & Archived' : 'Authorized Document'}`, 350, sigY + 50);
-
-    const pdfBlob = doc.output('blob');
-    window.open(URL.createObjectURL(pdfBlob), '_blank');
-  };
-
-  const displayedOrders = filterTab === null ? [] : orders.filter(o => {
-    if (filterTab === 'pending') return o.status === 'pending';
-    if (filterTab === 'signed') return o.status === 'signed';
-    return true;
+    return DEFAULT_CONTRACTOR_PROFILE;
   });
 
-  const totalApprovedRevenue = orders
-    .filter(o => o.status === 'signed')
-    .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
-  const totalPaidRevenue = orders
-    .filter(o => o.payment_status === 'paid')
-    .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
-  const signedCount = orders.filter(o => o.status === 'signed').length;
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
+  // --- Active Orders State ---
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const saved = localStorage.getItem('fieldsign_orders');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // --- UI Navigation State ---
+  const [activeTab, setActiveTab] = useState<'create' | 'orders' | 'settings' | 'sign'>('create');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  // Sync profile to localStorage
+  useEffect(() => {
+    localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(contractorProfile));
+  }, [contractorProfile]);
+
+  // Sync orders to localStorage
+  useEffect(() => {
+    localStorage.setItem('fieldsign_orders', JSON.stringify(orders));
+  }, [orders]);
+  // --- New Order Form State ---
+  const [clientName, setClientName] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [clientAddress, setClientAddress] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([
+    { id: 'item-1', description: '', quantity: 1, unitPrice: 0 }
+  ]);
+  // Inherit the contractor profile default for new orders
+  const [orderInstantPaymentEnabled, setOrderInstantPaymentEnabled] = useState(
+    contractorProfile.enableInstantPayment
+  );
+
+  // Keep order instant payment flag in sync if contractor changes their default
+  useEffect(() => {
+    setOrderInstantPaymentEnabled(contractorProfile.enableInstantPayment);
+  }, [contractorProfile.enableInstantPayment]);
+
+  // --- Item Handlers ---
+  const handleAddItem = () => {
+    setOrderItems((prev) => [
+      ...prev,
+      { id: `item-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 }
+    ]);
+  };
+
+  const handleUpdateItem = (id: string, field: keyof OrderItem, value: any) => {
+    setOrderItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleRemoveItem = (id: string) => {
+    if (orderItems.length > 1) {
+      setOrderItems((prev) => prev.filter((item) => item.id !== id));
+    }
+  };
+
+  const calculateTotal = () => {
+    return orderItems.reduce((acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+  };
+
+  // --- Order Creation Handler ---
+  const handleCreateOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim()) {
+      alert('Client Name is required.');
+      return;
+    }
+
+    const newOrder: Order = {
+      id: `ord_${Date.now()}`,
+      orderNumber: `FS-${Math.floor(100000 + Math.random() * 900000)}`,
+      createdAt: new Date().toISOString(),
+      contractor: { ...contractorProfile }, // Snapshots current profile
+      clientName,
+      clientEmail,
+      clientPhone,
+      clientAddress,
+      items: orderItems,
+      notes: orderNotes,
+      totalAmount: calculateTotal(),
+      paymentStatus: 'UNPAID', // Always unpaid upon creation
+      enableInstantPayment: orderInstantPaymentEnabled // Strictly inherits toggle state
+    };
+
+    setOrders((prev) => [newOrder, ...prev]);
+
+    // Reset Form
+    setClientName('');
+    setClientEmail('');
+    setClientPhone('');
+    setClientAddress('');
+    setOrderNotes('');
+    setOrderItems([{ id: `item-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 }]);
+    
+    // Direct user to view the newly created order
+    setSelectedOrderId(newOrder.id);
+    setActiveTab('orders');
+  };
+
+  // --- Manual Payment Status Toggle (Contractor Confirmation) ---
+  const handleTogglePaymentStatus = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((ord) => {
+        if (ord.id === orderId) {
+          const nextStatus = ord.paymentStatus === 'PAID' ? 'UNPAID' : 'PAID';
+          return { ...ord, paymentStatus: nextStatus };
+        }
+        return ord;
+      })
+    );
+  };
   return (
-    <div className="app-container">
-      {!isClientMode && (
-        <div className="demo-banner">
-          <span>⚡ FieldSign Contractor Portal</span>
-          <div className="demo-btn-group">
-            <button 
-              type="button" 
-              onClick={() => { fetchDashboardOrders(); setView('dashboard'); }} 
-              className={`demo-btn ${view === 'dashboard' ? 'active' : ''}`}
-            >
-              📊 Dashboard
-            </button>
-            <button 
-              type="button" 
-              onClick={() => {
-                setOrderType('Change Order');
-                setClientName('');
-                setClientPhone('');
-                setProjectTitle('');
-                setDescription('');
-                setCost('');
-                setPhotoData1('');
-                setPhotoData2('');
-                setCurrentOrderId(null);
-                setView('contractor');
-              }} 
-              className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
-            >
-              + New Order
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setView('settings')} 
-              className={`demo-btn ${view === 'settings' ? 'active' : ''}`}
-            >
-              ⚙️ Setup
-            </button>
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
+      {/* --- Top Navigation Header --- */}
+      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded bg-amber-500 flex items-center justify-center font-bold text-slate-900">
+              FS
+            </div>
+            <span className="text-xl font-bold tracking-tight">FieldSign</span>
           </div>
-        </div>
-      )}
 
-      <div className="main-wrapper">
-        {/* VIEW 4: SETTINGS */}
-        {view === 'settings' && !isClientMode && (
-          <div className="card-dark">
-            <div className="card-header">
-              <div>
-                <span className="sub-tag">Payments & Profile</span>
-                <h2 className="card-title">Settings & Branding</h2>
-              </div>
-              <span style={{ fontSize: '24px' }}>⚙️</span>
-            </div>
-
-            <div style={{ background: '#0b1120', border: '1px solid #334155', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase' }}>Stripe Payment Link</span>
-              <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 10px 0' }}>
-                Paste your Stripe Payment Link.
-              </p>
-              <input 
-                type="text" 
-                value={profile.stripePaymentLink} 
-                onChange={(e) => saveProfile({ ...profile, stripePaymentLink: e.target.value })} 
-                placeholder="https://buy.stripe.com/..." 
-              />
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                <input 
-                  type="checkbox" 
-                  id="requirePayment"
-                  checked={profile.requirePaymentUpfront}
-                  onChange={(e) => saveProfile({ ...profile, requirePaymentUpfront: e.target.checked })}
-                  style={{ width: '16px', height: '16px', accentColor: '#f59e0b' }}
-                />
-                <label htmlFor="requirePayment" style={{ fontSize: '12px', color: '#cbd5e1', cursor: 'pointer' }}>
-                  Enable Instant Payment Button on signing screen
-                </label>
-              </div>
-            </div>
-
-            <div className="form-group" style={{ textAlign: 'center', background: '#0b1120', padding: '16px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-              <label className="form-label">Company Logo</label>
-              {profile.logoDataUrl ? (
-                <div style={{ margin: '10px 0' }}>
-                  <img src={profile.logoDataUrl} alt="Logo" style={{ maxHeight: '60px', margin: '0 auto', borderRadius: '6px' }} />
-                  <br />
-                  <button 
-                    type="button" 
-                    onClick={() => saveProfile({ ...profile, logoDataUrl: '' })}
-                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', marginTop: '6px' }}
-                  >
-                    ✕ Remove Logo
-                  </button>
-                </div>
-              ) : (
-                <p style={{ fontSize: '11px', color: '#64748b', margin: '8px 0' }}>No logo uploaded yet</p>
-              )}
-              <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ fontSize: '12px', border: 'none', background: 'transparent' }} />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Business / Contractor Name</label>
-              <input type="text" value={profile.companyName} onChange={(e) => saveProfile({ ...profile, companyName: e.target.value })} />
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">License / Reg #</label>
-                <input type="text" value={profile.licenseNumber} onChange={(e) => saveProfile({ ...profile, licenseNumber: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Office Phone</label>
-                <input 
-                  type="text" 
-                  value={profile.phone} 
-                  onChange={(e) => saveProfile({ ...profile, phone: e.target.value })} 
-                  placeholder="(000) 000-0000"
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Business Email</label>
-              <input type="text" value={profile.email} onChange={(e) => saveProfile({ ...profile, email: e.target.value })} />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Custom Legal Authorization Terms</label>
-              <textarea rows={3} value={profile.customTerms} onChange={(e) => saveProfile({ ...profile, customTerms: e.target.value })} />
-            </div>
-
-            <button type="button" onClick={() => { alert('Settings Saved!'); setView('dashboard'); }} className="btn-primary">
-              ✓ Save Settings & Return
+          <nav className="flex space-x-1 sm:space-x-2">
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                activeTab === 'create' ? 'bg-amber-500 text-slate-900 font-semibold' : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              New Order
             </button>
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                activeTab === 'orders' ? 'bg-amber-500 text-slate-900 font-semibold' : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Order History ({orders.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                activeTab === 'settings' ? 'bg-amber-500 text-slate-900 font-semibold' : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              Settings
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        {/* ========================================================= */}
+        {/* --- SETTINGS TAB: Manage Contractor Business Info --- */}
+        {/* ========================================================= */}
+        {activeTab === 'settings' && (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+              <h2 className="text-xl font-bold text-slate-900">Contractor & Business Profile</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                These defaults will appear on all new client proposals and invoices.
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Business / Company Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Apex Electrical Services LLC"
+                  value={contractorProfile.businessName}
+                  onChange={(e) =>
+                    setContractorProfile({ ...contractorProfile, businessName: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="contact@business.com"
+                    value={contractorProfile.email}
+                    onChange={(e) =>
+                      setContractorProfile({ ...contractorProfile, email: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Contact Phone
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="(757) 555-0199"
+                    value={contractorProfile.phone}
+                    onChange={(e) =>
+                      setContractorProfile({ ...contractorProfile, phone: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Business Address / Location
+                </label>
+                <input
+                  type="text"
+                  placeholder="City, State, Zip"
+                  value={contractorProfile.address}
+                  onChange={(e) =>
+                    setContractorProfile({ ...contractorProfile, address: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-slate-100">
+                <div className="flex items-start space-x-3">
+                  <input
+                    type="checkbox"
+                    id="enableInstantPaymentDefault"
+                    checked={contractorProfile.enableInstantPayment}
+                    onChange={(e) =>
+                      setContractorProfile({
+                        ...contractorProfile,
+                        enableInstantPayment: e.target.checked
+                      })
+                    }
+                    className="h-5 w-5 mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <div>
+                    <label htmlFor="enableInstantPaymentDefault" className="font-semibold text-slate-900 cursor-pointer">
+                      Enable instant payment link on new orders by default
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      When disabled, the client will only sign the agreement without seeing an online payment button.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* VIEW 0: CONTRACTOR DASHBOARD */}
-        {view === 'dashboard' && !isClientMode && (
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-              <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Approved Volume</span>
-                <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
-                  ${totalApprovedRevenue.toLocaleString()}
-                </h3>
-                <span style={{ fontSize: '10px', color: '#64748b' }}>{signedCount} signed orders</span>
+        {/* ========================================================= */}
+        {/* --- CREATE TAB: Order Creation Form --- */}
+        {/* ========================================================= */}
+        {activeTab === 'create' && (
+          <form onSubmit={handleCreateOrder} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Create New Service Order</h2>
+                <p className="text-sm text-slate-500">Fill in client details and work scope items.</p>
               </div>
-
-              <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Direct Paid (Stripe)</span>
-                <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#38bdf8', marginTop: '2px' }}>
-                  ${totalPaidRevenue.toLocaleString()}
-                </h3>
-                <span style={{ fontSize: '10px', color: '#64748b' }}>{pendingCount} pending signature</span>
+              <div className="text-right text-xs text-slate-500">
+                <span>Contractor: </span>
+                <span className="font-semibold text-slate-700">
+                  {contractorProfile.businessName || 'Profile Incomplete (Set in Settings)'}
+                </span>
               </div>
             </div>
 
-            {/* Collapsible / Accordion Status Buttons */}
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-              <button
-                type="button"
-                onClick={() => handleTabToggle('active')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'active' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'active' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                All Orders ({orders.length}) {filterTab === 'active' ? '▲' : '▼'}
-              </button>
+            <div className="p-6 space-y-6">
+              {/* Client Info Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Client Full Name *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Jane Doe"
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Client Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="jane@client.com"
+                    value={clientEmail}
+                    onChange={(e) => setClientEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Client Phone
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="(555) 000-0000"
+                    value={clientPhone}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Service / Job Location
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="123 Maple Street"
+                    value={clientAddress}
+                    onChange={(e) => setClientAddress(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => handleTabToggle('pending')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'pending' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'pending' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                ⏳ Pending ({pendingCount}) {filterTab === 'pending' ? '▲' : '▼'}
-              </button>
+              {/* Line Items */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
+                  Scope of Work & Materials
+                </label>
+                <div className="space-y-3">
+                  {orderItems.map((item, index) => (
+                    <div key={item.id} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder={`Description item ${index + 1}`}
+                        value={item.description}
+                        onChange={(e) => handleUpdateItem(item.id, 'description', e.target.value)}
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-amber-500"
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Qty"
+                        value={item.quantity || ''}
+                        onChange={(e) => handleUpdateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                        className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-sm text-center focus:outline-none"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Price"
+                        value={item.unitPrice || ''}
+                        onChange={(e) => handleUpdateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                        className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm text-right focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(item.id)}
+                        className="p-2 text-slate-400 hover:text-red-500 transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
 
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="mt-3 text-sm font-semibold text-amber-600 hover:text-amber-700"
+                >
+                  + Add Line Item
+                </button>
+              </div>
+
+              {/* Order Notes */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Terms / Notes
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Payment due upon completion. Warranty valid for 12 months."
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Per-Order Payment Toggle */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
+                <div>
+                  <label htmlFor="orderPaymentToggle" className="text-sm font-bold text-slate-900 cursor-pointer">
+                    Enable Instant Payment Link for this Order
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    If unchecked, the client will only sign the agreement and not be shown an instant checkout button.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="orderPaymentToggle"
+                  checked={orderInstantPaymentEnabled}
+                  onChange={(e) => setOrderInstantPaymentEnabled(e.target.checked)}
+                  className="h-5 w-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Order Total & Submit */}
+              <div className="flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-slate-100 gap-4">
+                <div className="text-2xl font-bold text-slate-900">
+                  Total: ${calculateTotal().toFixed(2)}
+                </div>
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto px-6 py-3 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-lg transition shadow-sm"
+                >
+                  Generate Order Agreement
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+        {/* ========================================================= */}
+        {/* --- ORDERS TAB: Order History & Manual Payment Controls -- */}
+        {/* ========================================================= */}
+        {activeTab === 'orders' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Service Orders & Agreements</h2>
+                <p className="text-sm text-slate-500">Track signatures, balances, and payment verifications.</p>
+              </div>
               <button
-                type="button"
-                onClick={() => handleTabToggle('signed')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'signed' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'signed' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
+                onClick={() => setActiveTab('create')}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition"
               >
-                ✓ Signed ({signedCount}) {filterTab === 'signed' ? '▲' : '▼'}
+                + Create Another Order
               </button>
             </div>
 
-            {filterTab === null && (
-              <div style={{ textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
-                Tap any status category above to expand orders ▼
+            {orders.length === 0 ? (
+              <div className="bg-white p-12 text-center rounded-xl border border-slate-200">
+                <p className="text-slate-400 font-medium">No service orders created yet.</p>
               </div>
-            )}
-
-            {filterTab !== null && displayedOrders.length === 0 && !isLoadingOrders && (
-              <div className="card-dark" style={{ textAlign: 'center', padding: '36px 16px' }}>
-                <span style={{ fontSize: '32px' }}>📝</span>
-                <h4 style={{ fontSize: '15px', fontWeight: 700, marginTop: '8px' }}>No orders found</h4>
-                <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-                  No orders match this status.
-                </p>
-              </div>
-            )}
-
-            {filterTab !== null && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {displayedOrders.map((o) => (
-                  <div key={o.id} style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                      <div>
-                        <span style={{ fontSize: '10px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase' }}>
-                          {o.order_type || 'Change Order'}
-                        </span>
-                        <h4 style={{ fontSize: '15px', fontWeight: 800, marginTop: '1px' }}>{o.project_title}</h4>
-                        <p style={{ fontSize: '12px', color: '#94a3b8' }}>Client: <strong>{o.client_name}</strong> ({o.client_phone})</p>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '16px', fontWeight: 900, color: o.status === 'signed' ? '#10b981' : '#f1f5f9' }}>
-                          ${o.cost}
-                        </span>
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: o.status === 'signed' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: o.status === 'signed' ? '#10b981' : '#f59e0b' }}>
-                            {o.status === 'signed' ? '✓ Signed' : '⏳ Pending'}
-                          </span>
-                          {o.payment_status === 'paid' && (
-                            <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
-                              💳 Paid
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {orders.map((ord) => {
+                  const isSelected = selectedOrderId === ord.id;
+                  return (
+                    <div
+                      key={ord.id}
+                      className={`bg-white rounded-xl border transition-all p-5 shadow-sm ${
+                        isSelected ? 'border-amber-500 ring-1 ring-amber-500' : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        {/* Order Details Header */}
+                        <div>
+                          <div className="flex items-center space-x-3">
+                            <span className="font-mono font-bold text-slate-900 text-lg">{ord.orderNumber}</span>
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                ord.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {ord.paymentStatus}
                             </span>
-                          )}
+                            {ord.signature ? (
+                              <span className="bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider">
+                                Signed
+                              </span>
+                            ) : (
+                              <span className="bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider">
+                                Awaiting Signature
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="mt-1 text-sm text-slate-600 space-x-2">
+                            <span className="font-semibold text-slate-800">{ord.clientName}</span>
+                            <span>•</span>
+                            <span>{ord.clientPhone || ord.clientEmail || 'No contact provided'}</span>
+                            <span>•</span>
+                            <span className="text-slate-400">Created: {new Date(ord.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+
+                        {/* Order Total & Actions */}
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="text-right mr-2">
+                            <div className="text-xs uppercase font-semibold text-slate-400">Order Total</div>
+                            <div className="text-lg font-bold text-slate-900">${ord.totalAmount.toFixed(2)}</div>
+                          </div>
+
+                          {/* Contractor Verification Toggle */}
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePaymentStatus(ord.id)}
+                            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
+                              ord.paymentStatus === 'PAID'
+                                ? 'border-slate-300 text-slate-700 hover:bg-slate-50'
+                                : 'border-emerald-600 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {ord.paymentStatus === 'PAID' ? 'Mark as Unpaid' : '✓ Confirm Payment Received'}
+                          </button>
+
+                          {/* Open Client Signing Modal/View */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedOrderId(ord.id);
+                              setActiveTab('sign');
+                            }}
+                            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition"
+                          >
+                            Open Signing Document →
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Line Item Preview Accordion */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 flex flex-wrap justify-between items-center gap-2">
+                        <div>
+                          <span>Items: </span>
+                          <span className="text-slate-700 font-medium">
+                            {ord.items.map((i) => `${i.description || 'Item'} (${i.quantity}x)`).join(', ')}
+                          </span>
+                        </div>
+                        <div>
+                          <span>Instant Checkout Status: </span>
+                          <span className="font-semibold text-slate-700">
+                            {ord.enableInstantPayment ? 'Enabled' : 'Disabled'}
+                          </span>
                         </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {/* ========================================================= */}
+        {/* --- SIGN TAB: Client Signing View & Guarded Actions ----- */}
+        {/* ========================================================= */}
+        {activeTab === 'sign' && selectedOrderId && (() => {
+          const currentOrder = orders.find((o) => o.id === selectedOrderId);
+          if (!currentOrder) {
+            return (
+              <div className="text-center py-12">
+                <p className="text-slate-500">Order not found.</p>
+                <button
+                  onClick={() => setActiveTab('orders')}
+                  className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm"
+                >
+                  Return to Orders
+                </button>
+              </div>
+            );
+          }
 
-                    <p style={{ fontSize: '12px', color: '#cbd5e1', background: '#0b1120', padding: '8px 10px', borderRadius: '8px', margin: '8px 0' }}>
-                      {o.description}
+          return (
+            <div className="max-w-3xl mx-auto space-y-6">
+              {/* Back Bar */}
+              <div className="flex justify-between items-center">
+                <button
+                  onClick={() => setActiveTab('orders')}
+                  className="text-sm font-semibold text-slate-600 hover:text-slate-900"
+                >
+                  ← Back to Order List
+                </button>
+                <div className="text-xs text-slate-400">
+                  Document ID: <span className="font-mono">{currentOrder.id}</span>
+                </div>
+              </div>
+
+              {/* Printable / Viewable Agreement */}
+              <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-8 sm:p-10 space-y-8">
+                {/* Document Header */}
+                <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-slate-100 pb-6">
+                  <div>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                      {currentOrder.contractor.businessName || 'Service Agreement'}
+                    </h1>
+                    <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+                      {currentOrder.contractor.email && <p>{currentOrder.contractor.email}</p>}
+                      {currentOrder.contractor.phone && <p>{currentOrder.contractor.phone}</p>}
+                      {currentOrder.contractor.address && <p>{currentOrder.contractor.address}</p>}
+                    </div>
+                  </div>
+                  <div className="sm:text-right">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Order Reference</span>
+                    <p className="font-mono text-xl font-bold text-slate-900">{currentOrder.orderNumber}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Date: {new Date(currentOrder.createdAt).toLocaleDateString()}
                     </p>
+                  </div>
+                </div>
 
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                      <button
-                        type="button"
-                        onClick={() => triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.id, o.order_type)}
-                        style={{ flex: 1.2, padding: '8px', borderRadius: '8px', border: '1px solid #10b981', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
-                      >
-                        💬 Text SMS
-                      </button>
+                {/* Client / Location Info */}
+                <div className="bg-slate-50 p-4 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Client Details
+                    </span>
+                    <p className="font-semibold text-slate-900">{currentOrder.clientName}</p>
+                    {currentOrder.clientEmail && <p className="text-slate-600">{currentOrder.clientEmail}</p>}
+                    {currentOrder.clientPhone && <p className="text-slate-600">{currentOrder.clientPhone}</p>}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Service Location
+                    </span>
+                    <p className="text-slate-700">{currentOrder.clientAddress || 'Not specified'}</p>
+                  </div>
+                </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}?id=${o.id}`);
-                          alert(`Sign link copied for ${o.client_name}!`);
-                        }}
-                        style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #334155', background: '#1e293b', color: '#38bdf8', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        📋 Copy Link
-                      </button>
+                {/* Scope of Work Table */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Work Specification</h3>
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500 font-semibold text-xs uppercase">
+                        <th className="py-2">Description</th>
+                        <th className="py-2 text-center w-16">Qty</th>
+                        <th className="py-2 text-right w-24">Price</th>
+                        <th className="py-2 text-right w-28">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {currentOrder.items.map((item, idx) => (
+                        <tr key={idx}>
+                          <td className="py-3 text-slate-800">{item.description || 'Standard Scope Item'}</td>
+                          <td className="py-3 text-center text-slate-600">{item.quantity}</td>
+                          <td className="py-3 text-right text-slate-600">${Number(item.unitPrice).toFixed(2)}</td>
+                          <td className="py-3 text-right font-semibold text-slate-900">
+                            ${(item.quantity * item.unitPrice).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-                      {o.status === 'signed' && (
+                  <div className="flex justify-end pt-4 border-t border-slate-200 mt-2">
+                    <div className="text-right">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Agreed Balance</span>
+                      <p className="text-3xl font-black text-slate-900">${currentOrder.totalAmount.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notes & Terms */}
+                {currentOrder.notes && (
+                  <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-600 border border-slate-200">
+                    <span className="font-bold uppercase tracking-wider text-slate-500 block mb-1">Terms & Notes</span>
+                    {currentOrder.notes}
+                  </div>
+                )}
+
+                {/* Signature Block */}
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Authorization & Acceptance
+                  </h3>
+                  
+                  {currentOrder.signature ? (
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-emerald-900">Document Electronically Signed</p>
+                        <p className="text-xs text-emerald-700">
+                          Signer: {currentOrder.signature} • Timestamp: {new Date(currentOrder.signedAt || '').toLocaleString()}
+                        </p>
+                      </div>
+                      <span className="text-emerald-700 text-lg">✓</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          id="signerInput"
+                          placeholder="Type your full legal name to sign"
+                          className="flex-1 px-4 py-2 border border-slate-300 rounded-lg font-serif italic text-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
                         <button
                           type="button"
-                          onClick={() => handleDownloadPdf({
-                            company: o.contractor_company,
-                            logo: o.contractor_logo,
-                            license: o.contractor_license,
-                            phone: o.contractor_phone,
-                            email: o.contractor_email,
-                            terms: o.custom_terms,
-                            type: o.order_type,
-                            project: o.project_title,
-                            client: o.client_name,
-                            clientPhone: o.client_phone,
-                            desc: o.description,
-                            amount: o.cost,
-                            photo1: o.photo_data,
-                            photo2: o.photo_data_2,
-                            sig: o.signature_data,
-                            date: o.signed_at,
-                            docId: o.id,
-                            isPaid: o.payment_status === 'paid'
-                          })}
-                          style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+                          onClick={() => {
+                            const input = document.getElementById('signerInput') as HTMLInputElement;
+                            if (input && input.value.trim()) {
+                              const typedSignature = input.value.trim();
+                              setOrders((prev) =>
+                                prev.map((ord) =>
+                                  ord.id === currentOrder.id
+                                    ? {
+                                        ...ord,
+                                        signature: typedSignature,
+                                        signedAt: new Date().toISOString()
+                                      }
+                                    : ord
+                                )
+                              );
+                            } else {
+                              alert('Please type your name before accepting.');
+                            }
+                          }}
+                          className="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-sm transition"
                         >
-                          📄 PDF
+                          Sign & Accept
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        By signing, you agree that this electronic signature is legally binding.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* --- Guarded Instant Payment Section --- */}
+                {/* Strictly hidden if enableInstantPayment is false. Clicking will not mark as PAID without contractor confirmation */}
+                {currentOrder.enableInstantPayment && (
+                  <div className="border-t border-slate-200 pt-6 mt-6 bg-amber-50/50 p-5 rounded-xl border border-amber-100">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">Instant Online Settlement</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {currentOrder.paymentStatus === 'PAID'
+                            ? 'Payment has been verified by the contractor.'
+                            : 'Clicking below opens the payment gateway in a secure window.'}
+                        </p>
+                      </div>
+
+                      {currentOrder.paymentStatus === 'PAID' ? (
+                        <div className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg uppercase tracking-wider">
+                          ✓ Paid in Full
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(
+                              'Opening external checkout gateway. The order status remains unpaid until verified by the contractor or gateway webhook.'
+                            );
+                          }}
+                          className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-lg transition shadow-sm"
+                        >
+                          Pay ${currentOrder.totalAmount.toFixed(2)} Online
                         </button>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => deleteOrderPermanently(o.id)}
-                        style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
-                        title="Permanently Delete"
-                      >
-                        🗑️
-                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {/* VIEW 1: CONTRACTOR FORM WITH VOICE DICTATION & DUAL PHOTO INPUTS */}
-        {view === 'contractor' && !isClientMode && (
-          <div className="card-dark">
-            <div style={{ display: 'flex', background: '#0b1120', padding: '4px', borderRadius: '10px', marginBottom: '16px', border: '1px solid #1e293b' }}>
-              <button
-                type="button"
-                onClick={() => setOrderType('Change Order')}
-                style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', background: orderType === 'Change Order' ? '#f59e0b' : 'transparent', color: orderType === 'Change Order' ? '#0f172a' : '#94a3b8' }}
-              >
-                Scope Change (Add-on)
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrderType('New Job Agreement')}
-                style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', background: orderType === 'New Job Agreement' ? '#f59e0b' : 'transparent', color: orderType === 'New Job Agreement' ? '#0f172a' : '#94a3b8' }}
-              >
-                New Job Agreement
-              </button>
-            </div>
-
-            <div className="card-header">
-              <div>
-                <span className="sub-tag">{profile.companyName}</span>
-                <h2 className="card-title">{orderType === 'Change Order' ? 'Quick Change Order' : 'New Job Agreement'}</h2>
-              </div>
-              <span style={{ fontSize: '24px' }}>📋</span>
-            </div>
-
-            {orderType === 'Change Order' && (
-              <>
-                <label className="form-label">Tap to Auto-Fill Template:</label>
-                <div className="presets-grid">
-                  {PRESETS.map((p, idx) => (
-                    <button key={idx} type="button" onClick={() => applyPreset(p)} className="preset-chip">
-                      +{p.label} (${p.cost})
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="form-row">
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ margin: 0 }}>Client Name</label>
-                  <button 
-                    type="button" 
-                    onClick={() => startDictation('clientName', setClientName)}
-                    style={{ background: activeListeningField === 'clientName' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                  >
-                    {activeListeningField === 'clientName' ? '🔴 Listening...' : '🎙️ Dictate'}
-                  </button>
-                </div>
-                <input 
-                  type="text" 
-                  value={clientName} 
-                  onChange={(e) => setClientName(e.target.value)} 
-                  placeholder="Enter client’s name"
-                />
-              </div>
-
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ margin: 0 }}>Client Phone (for SMS)</label>
-                  <button 
-                    type="button" 
-                    onClick={() => startDictation('clientPhone', setClientPhone)}
-                    style={{ background: activeListeningField === 'clientPhone' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                  >
-                    {activeListeningField === 'clientPhone' ? '🔴' : '🎙️'}
-                  </button>
-                </div>
-                <input 
-                  type="text" 
-                  value={clientPhone} 
-                  onChange={(e) => setClientPhone(e.target.value)} 
-                  placeholder="(000) 000-0000"
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label className="form-label" style={{ margin: 0 }}>Project / Job Name</label>
-                <button 
-                  type="button" 
-                  onClick={() => startDictation('projectTitle', setProjectTitle)}
-                  style={{ background: activeListeningField === 'projectTitle' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                >
-                  {activeListeningField === 'projectTitle' ? '🔴 Listening...' : '🎙️ Dictate'}
-                </button>
-              </div>
-              <input 
-                type="text" 
-                value={projectTitle} 
-                onChange={(e) => setProjectTitle(e.target.value)} 
-                placeholder="Enter project name"
-              />
-            </div>
-
-            <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label className="form-label" style={{ margin: 0 }}>Scope Description</label>
-                <button 
-                  type="button" 
-                  onClick={() => startDictation('description', setDescription)}
-                  style={{ background: activeListeningField === 'description' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                >
-                  {activeListeningField === 'description' ? '🔴 Dictating...' : '🎙️ Voice Dictation'}
-                </button>
-              </div>
-              <textarea 
-                rows={3} 
-                value={description} 
-                onChange={(e) => setDescription(e.target.value)} 
-                placeholder="Describe labor, materials, or speak using the mic..." 
-              />
-            </div>
-
-            {/* Dual Photo Attachment Box */}
-            <div style={{ background: '#0b1120', border: '1px dashed #334155', borderRadius: '12px', padding: '12px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', display: 'block', textAlign: 'center', marginBottom: '8px' }}>
-                📷 Job-Site Evidence (Up to 2 Photos)
-              </span>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', textAlign: 'center' }}>
-                {/* Photo Slot 1 */}
-                <div style={{ background: '#131b2e', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '6px' }}>Photo 1 (Issue)</span>
-                  {photoData1 ? (
-                    <div>
-                      <img src={photoData1} alt="Slot 1" style={{ maxHeight: '75px', borderRadius: '6px', margin: '0 auto' }} />
-                      <button type="button" onClick={() => setPhotoData1('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
-                        📷 Take Picture
-                        <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} style={{ display: 'none' }} />
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#0b1120', color: '#94a3b8', border: '1px solid #1e293b', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
-                        📁 Upload Photo
-                        <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} style={{ display: 'none' }} />
-                      </label>
-                    </div>
-                  )}
-                </div>
-
-                {/* Photo Slot 2 */}
-                <div style={{ background: '#131b2e', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '6px' }}>Photo 2 (Detail)</span>
-                  {photoData2 ? (
-                    <div>
-                      <img src={photoData2} alt="Slot 2" style={{ maxHeight: '75px', borderRadius: '6px', margin: '0 auto' }} />
-                      <button type="button" onClick={() => setPhotoData2('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
-                        📷 Take Picture
-                        <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} style={{ display: 'none' }} />
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#0b1120', color: '#94a3b8', border: '1px solid #1e293b', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
-                        📁 Upload Photo
-                        <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} style={{ display: 'none' }} />
-                      </label>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Authorized Amount ($ USD)</label>
-              <input type="number" className="price-input" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" />
-            </div>
-
-            <button type="button" onClick={createOrder} disabled={isSaving} className="btn-primary">
-              {isSaving ? 'Saving to Database...' : '🚀 Save & Text Link to Client'}
-            </button>
-          </div>
-        )}
-
-        {/* VIEW 2: CLIENT SIGN-OFF */}
-        {view === 'client_review' && (
-          <div className="card-light">
-            <div className="card-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {(orderContractorLogo || profile.logoDataUrl) && (
-                  <img src={orderContractorLogo || profile.logoDataUrl} alt="Logo" style={{ maxHeight: '35px', borderRadius: '4px' }} />
                 )}
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
-                    {orderContractorName || profile.companyName}
-                  </span>
-                  <h3 style={{ fontSize: '18px', fontWeight: 800, marginTop: '2px' }}>{orderType} Authorization</h3>
-                </div>
-              </div>
-              <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '11px', padding: '4px 8px', borderRadius: '12px', fontWeight: 700 }}>
-                Pending Sign-off
-              </span>
-            </div>
-
-            <div className="summary-box">
-              <div className="summary-row">
-                <span>Project:</span>
-                <strong>{projectTitle}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Client:</span>
-                <strong>{clientName}</strong>
-              </div>
-              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agreed Scope:</span>
-                <p style={{ marginTop: '4px', color: '#1e293b', fontWeight: 500 }}>{description || 'Scope work details.'}</p>
-              </div>
-
-              {(photoData1 || photoData2) && (
-                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
-                    Site Condition Photos:
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    {photoData1 && <img src={photoData1} alt="Site 1" style={{ maxHeight: '110px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />}
-                    {photoData2 && <img src={photoData2} alt="Site 2" style={{ maxHeight: '110px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />}
-                  </div>
-                </div>
-              )}
-
-              <div className="summary-total">
-                <span>Authorized Total:</span>
-                <span>${cost || '0.00'}</span>
               </div>
             </div>
-
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                <input 
-                  type="checkbox" 
-                  id="legalAgree" 
-                  checked={acceptedTerms} 
-                  onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#f59e0b', cursor: 'pointer' }}
-                />
-                <label htmlFor="legalAgree" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer' }}>
-                  <strong>Authorization & Terms:</strong> {orderTerms || profile.customTerms || DEFAULT_TERMS}
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>Sign with finger or stylus:</label>
-                <button type="button" onClick={clearCanvas} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '11px' }}>
-                  ↺ Clear
-                </button>
-              </div>
-
-              <div className="canvas-wrapper" style={{ touchAction: 'none' }}>
-                <canvas 
-                  ref={canvasRef} 
-                  width={340} 
-                  height={120} 
-                  style={{ touchAction: 'none' }}
-                  onMouseDown={handleStartDraw} 
-                  onMouseMove={handleDraw} 
-                  onMouseUp={handleStopDraw} 
-                  onTouchStart={handleStartDraw} 
-                  onTouchMove={handleDraw} 
-                  onTouchEnd={handleStopDraw} 
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' }}>
-              {profile.requirePaymentUpfront && (profile.stripePaymentLink || orderPaymentLink) && (
-                <button 
-                  type="button" 
-                  onClick={() => finalizeSignatureAndPay(true)} 
-                  disabled={!acceptedTerms}
-                  style={{
-                    width: '100%',
-                    background: '#0f172a',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '12px',
-                    padding: '14px',
-                    fontSize: '15px',
-                    fontWeight: 800,
-                    cursor: acceptedTerms ? 'pointer' : 'not-allowed',
-                    opacity: acceptedTerms ? 1 : 0.6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  💳 Sign & Pay Now with Stripe (${cost || '0.00'})
-                </button>
-              )}
-
-              <button 
-                type="button" 
-                onClick={() => finalizeSignatureAndPay(false)} 
-                disabled={!acceptedTerms}
-                className="btn-approve"
-                style={{ opacity: acceptedTerms ? 1 : 0.6, cursor: acceptedTerms ? 'pointer' : 'not-allowed', marginTop: 0 }}
-              >
-                ✓ Authorize Scope (Pay Later / On Invoice)
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 3: LOCKED RECEIPT */}
-        {view === 'signed_receipt' && (
-          <div className="card-dark" style={{ textAlign: 'center' }}>
-            <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto', fontSize: '20px', fontWeight: 800 }}>
-              ✓
-            </div>
-
-            <h2 style={{ fontSize: '18px', fontWeight: 800 }}>Document Authorized & Locked</h2>
-            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-              {paymentStatus === 'paid' ? 'Payment processed & record archived.' : 'Permanent record saved in database.'}
-            </p>
-
-            <div style={{ background: '#0b1120', borderRadius: '12px', padding: '14px', margin: '16px 0', textAlign: 'left', border: '1px solid #1e293b', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Type:</span>
-                <strong>{orderType}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Contractor:</span>
-                <strong>{orderContractorName || profile.companyName}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Client:</span>
-                <strong>{clientName}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Amount:</span>
-                <strong style={{ color: '#34d399' }}>${cost}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Payment:</span>
-                <strong style={{ color: paymentStatus === 'paid' ? '#38bdf8' : '#f59e0b' }}>
-                  {paymentStatus === 'paid' ? 'Paid via Stripe' : 'Invoice Due Upon Completion'}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Timestamp:</span>
-                <span style={{ fontFamily: 'monospace' }}>{signTimestamp}</span>
-              </div>
-              {signatureData && (
-                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #1e293b' }}>
-                  <span style={{ color: '#64748b', display: 'block', marginBottom: '4px' }}>Captured Signature:</span>
-                  <div style={{ background: '#ffffff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
-                    <img src={signatureData} alt="Client Signature" style={{ maxHeight: '45px' }} />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-              <button
-                type="button"
-                onClick={() => handleDownloadPdf()}
-                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#f59e0b', color: '#0f172a', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
-              >
-                📄 Open / Download Official 1-Page PDF
-              </button>
-
-              {!isClientMode && (
-                <button 
-                  type="button" 
-                  onClick={() => { fetchDashboardOrders(); setView('dashboard'); }} 
-                  className="btn-secondary"
-                >
-                  ← Return to Dashboard
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+          );
+        })()}
+      </main>
     </div>
   );
 }
