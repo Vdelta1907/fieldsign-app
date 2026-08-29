@@ -957,34 +957,84 @@ export default function App() {
               <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe labor, materials, or adjustments..." />
             </div>
 
-            {/* Dual Photo Attachment Box */}
+                        {/* Dual Photo Attachment Box */}
             <div style={{ background: '#0b1120', border: '1px dashed #334155', borderRadius: '12px', padding: '12px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', display: 'block', textAlign: 'center', marginBottom: '8px' }}>
                 📷 Job-Site Evidence (Up to 2 Photos)
               </span>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', textAlign: 'center' }}>
-                <div style={{ background: '#131b2e', padding: '8px', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Photo 1 (Issue)</span>
+                {/* Photo Slot 1 */}
+                <div style={{ background: '#131b2e', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '6px' }}>Photo 1 (Issue)</span>
                   {photoData1 ? (
                     <div>
                       <img src={photoData1} alt="Slot 1" style={{ maxHeight: '75px', borderRadius: '6px', margin: '0 auto' }} />
                       <button type="button" onClick={() => setPhotoData1('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
                     </div>
                   ) : (
-                    <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} style={{ fontSize: '10px', color: '#94a3b8', width: '100%' }} />
+                    <label style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      background: '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}>
+                      📷 Take Picture
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        capture="environment" 
+                        onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} 
+                        style={{ display: 'none' }} 
+                      />
+                    </label>
                   )}
                 </div>
 
-                <div style={{ background: '#131b2e', padding: '8px', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Photo 2 (Detail)</span>
+                {/* Photo Slot 2 */}
+                <div style={{ background: '#131b2e', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                  <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '6px' }}>Photo 2 (Detail)</span>
                   {photoData2 ? (
                     <div>
                       <img src={photoData2} alt="Slot 2" style={{ maxHeight: '75px', borderRadius: '6px', margin: '0 auto' }} />
                       <button type="button" onClick={() => setPhotoData2('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
                     </div>
                   ) : (
-                    <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} style={{ fontSize: '10px', color: '#94a3b8', width: '100%' }} />
+                    <label style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      background: '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}>
+                      📷 Take Picture
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        capture="environment" 
+                        onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} 
+                        style={{ display: 'none' }} 
+                      />
+                    </label>
                   )}
                 </div>
               </div>
