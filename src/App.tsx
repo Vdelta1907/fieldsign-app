@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // --- Type Definitions ---
 export interface ContractorProfile {
   businessName: string;
