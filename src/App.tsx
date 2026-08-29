@@ -56,7 +56,7 @@ const PRESETS: Preset[] = [
 
 export default function App() {
   const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
-  const [orderType, setOrderType] = useState<'Change Order' | 'New Job Estimate'>('Change Order');
+  const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
   
   const [isClientMode, setIsClientMode] = useState<boolean>(false);
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
@@ -67,10 +67,10 @@ export default function App() {
       try { return JSON.parse(saved); } catch (e) {}
     }
     return {
-      companyName: 'Apex Remodeling & Build',
+      companyName: 'Fieldsign',
       licenseNumber: 'GC-VA-89421A',
-      phone: '(757) 555-0199',
-      email: 'ops@apexremodel.com',
+      phone: '(000) 000-0000',
+      email: 'Info@fieldsign.com',
       logoDataUrl: '',
       customTerms: DEFAULT_TERMS,
       stripePaymentLink: 'https://buy.stripe.com/test_demo',
@@ -119,7 +119,7 @@ export default function App() {
   const startDictation = (field: string, setter: (val: string | ((prev: string) => string)) => void) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Voice dictation is not supported on this browser. Please use keyboard dictation.");
+      alert("Voice dictation is not supported on this browser. Please use the microphone on your keyboard.");
       return;
     }
 
@@ -128,35 +128,40 @@ export default function App() {
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
 
-    setActiveListeningField(field);
+      setActiveListeningField(field);
 
-    recognition.onresult = (event: any) => {
-      const speechText = event.results[0][0].transcript;
-      setter(prev => (prev ? `${prev} ${speechText}` : speechText));
+      recognition.onresult = (event: any) => {
+        const speechText = event.results[0][0].transcript;
+        setter(prev => (prev ? `${prev} ${speechText}` : speechText));
+        setActiveListeningField(null);
+      };
+
+      recognition.onerror = () => {
+        setActiveListeningField(null);
+      };
+
+      recognition.onend = () => {
+        setActiveListeningField(null);
+      };
+
+      recognition.start();
+    } catch (e) {
       setActiveListeningField(null);
-    };
-
-    recognition.onerror = () => {
-      setActiveListeningField(null);
-    };
-
-    recognition.onend = () => {
-      setActiveListeningField(null);
-    };
-
-    recognition.start();
+    }
   };
 
-  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, orderId?: string) => {
+  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, orderId?: string, type?: string) => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const targetId = orderId || currentOrderId;
+    const currentType = type || orderType;
     const url = targetId ? `${window.location.origin}?id=${targetId}` : window.location.href;
-    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${orderType} for "${project || 'Job'}" ($${amount}): ${url}`;
+    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${currentType} for "${project || 'Job'}" ($${amount}): ${url}`;
     window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
   };
 
@@ -264,7 +269,7 @@ export default function App() {
       if (data && data.length > 0) {
         const o = data[0];
         setCurrentOrderId(o.id);
-        setOrderType(o.order_type || 'Change Order');
+        setOrderType(o.order_type === 'New Job Agreement' ? 'New Job Agreement' : 'Change Order');
         setProjectTitle(o.project_title || '');
         setClientName(o.client_name || '');
         setClientPhone(o.client_phone || '');
@@ -309,6 +314,26 @@ export default function App() {
 
     setIsSaving(true);
     try {
+      const payload: Record<string, any> = {
+        order_type: orderType,
+        contractor_company: profile.companyName,
+        contractor_logo: profile.logoDataUrl || null,
+        contractor_license: profile.licenseNumber || null,
+        contractor_phone: profile.phone || null,
+        contractor_email: profile.email || null,
+        custom_terms: profile.customTerms || DEFAULT_TERMS,
+        project_title: projectTitle || 'Untitled Project',
+        client_name: clientName || 'Client',
+        client_phone: clientPhone || '',
+        description: description,
+        cost: parseFloat(cost) || 0,
+        status: 'pending',
+        photo_data: photoData1 || null,
+        photo_data_2: photoData2 || null,
+        payment_status: 'unpaid',
+        payment_link: profile.stripePaymentLink
+      };
+
       const response = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
         method: 'POST',
         headers: {
@@ -317,26 +342,14 @@ export default function App() {
           'Content-Type': 'application/json',
           'Prefer': 'return=representation'
         },
-        body: JSON.stringify({
-          order_type: orderType,
-          contractor_company: profile.companyName,
-          contractor_logo: profile.logoDataUrl || null,
-          contractor_license: profile.licenseNumber || null,
-          contractor_phone: profile.phone || null,
-          contractor_email: profile.email || null,
-          custom_terms: profile.customTerms || DEFAULT_TERMS,
-          project_title: projectTitle || 'Untitled Project',
-          client_name: clientName || 'Client',
-          client_phone: clientPhone || '',
-          description: description,
-          cost: parseFloat(cost) || 0,
-          status: 'pending',
-          photo_data: photoData1 || null,
-          photo_data_2: photoData2 || null,
-          payment_status: 'unpaid',
-          payment_link: profile.stripePaymentLink
-        })
+        body: JSON.stringify(payload)
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Supabase Error Response:", errorText);
+        throw new Error(`Database error (${response.status}): Make sure you ran the SQL columns in Supabase.`);
+      }
 
       const data = await response.json();
       if (data && data.length > 0) {
@@ -345,10 +358,11 @@ export default function App() {
         setOrderPaymentLink(profile.stripePaymentLink);
         await fetchDashboardOrders();
         setView('dashboard');
-        triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.id);
+        triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.id, orderType);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Database save error:', err);
+      alert(err.message || 'Failed to save order to Supabase.');
     } finally {
       setIsSaving(false);
     }
@@ -524,11 +538,11 @@ export default function App() {
     doc.text('OFFICIAL WORK AUTHORIZATION & PAYMENT RECORD', textLeftMargin, 68);
 
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.roundedRect(420, 30, 152, 26, 4, 4, 'F');
+    doc.roundedRect(400, 30, 172, 26, 4, 4, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(255, 255, 255);
-    doc.text(dType.toUpperCase(), 496, 47, { align: 'center' });
+    doc.text(dType.toUpperCase(), 486, 47, { align: 'center' });
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(1);
@@ -631,7 +645,6 @@ export default function App() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    // 2. Updated Signature Label
     doc.text("CLIENT'S AUTHORIZED ELECTRONIC SIGNATURE", 52, sigY + 14);
 
     if (dSig) {
@@ -678,6 +691,7 @@ export default function App() {
             <button 
               type="button" 
               onClick={() => {
+                setOrderType('Change Order');
                 setClientName('');
                 setClientPhone('');
                 setProjectTitle('');
@@ -933,7 +947,7 @@ export default function App() {
                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button
                         type="button"
-                        onClick={() => triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.id)}
+                        onClick={() => triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.id, o.order_type)}
                         style={{ flex: 1.2, padding: '8px', borderRadius: '8px', border: '1px solid #10b981', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
                       >
                         💬 Text SMS
@@ -1007,8 +1021,8 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setOrderType('New Job Estimate')}
-                style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', background: orderType === 'New Job Estimate' ? '#f59e0b' : 'transparent', color: orderType === 'New Job Estimate' ? '#0f172a' : '#94a3b8' }}
+                onClick={() => setOrderType('New Job Agreement')}
+                style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', background: orderType === 'New Job Agreement' ? '#f59e0b' : 'transparent', color: orderType === 'New Job Agreement' ? '#0f172a' : '#94a3b8' }}
               >
                 New Job Agreement
               </button>
@@ -1017,7 +1031,7 @@ export default function App() {
             <div className="card-header">
               <div>
                 <span className="sub-tag">{profile.companyName}</span>
-                <h2 className="card-title">{orderType === 'Change Order' ? 'Quick Change Order' : 'Quick Estimate'}</h2>
+                <h2 className="card-title">{orderType === 'Change Order' ? 'Quick Change Order' : 'New Job Agreement'}</h2>
               </div>
               <span style={{ fontSize: '24px' }}>📋</span>
             </div>
@@ -1113,7 +1127,7 @@ export default function App() {
               />
             </div>
 
-            {/* Dual Photo Attachment Box with Camera & Upload Options */}
+            {/* Dual Photo Attachment Box */}
             <div style={{ background: '#0b1120', border: '1px dashed #334155', borderRadius: '12px', padding: '12px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', display: 'block', textAlign: 'center', marginBottom: '8px' }}>
                 📷 Job-Site Evidence (Up to 2 Photos)
@@ -1177,7 +1191,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 2: CLIENT SIGN-OFF (MAPS CONTRACTOR INFO) */}
+        {/* VIEW 2: CLIENT SIGN-OFF */}
         {view === 'client_review' && (
           <div className="card-light">
             <div className="card-header">
