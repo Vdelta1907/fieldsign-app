@@ -1,7 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// --- Supabase Credentials ---
-const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
 
 // --- Type Definitions ---
 export interface ContractorProfile {
@@ -35,49 +32,48 @@ export interface Order {
   signature?: string;
   signedAt?: string;
   paymentStatus: 'UNPAID' | 'PENDING' | 'PAID';
-  enableInstantPayment: boolean; // Controls button visibility for client
+  enableInstantPayment: boolean;
 }
 
-// --- Default Configuration ---
-const DEFAULT_CONTRACTOR_PROFILE: ContractorProfile = {
+const DEFAULT_PROFILE: ContractorProfile = {
   businessName: '',
   email: '',
   phone: '',
   address: '',
-  enableInstantPayment: false, // Defaulted to disabled
+  enableInstantPayment: false,
   paymentInstructions: 'Please remit payment upon invoice receipt.'
 };
 
 export default function App() {
-  // --- Contractor Settings State ---
+  // --- Persistent Contractor Profile ---
   const [contractorProfile, setContractorProfile] = useState<ContractorProfile>(() => {
-    const saved = localStorage.getItem('fieldsign_contractor_profile');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse saved contractor profile', e);
-      }
+    try {
+      const saved = localStorage.getItem('fieldsign_contractor_profile');
+      return saved ? JSON.parse(saved) : DEFAULT_PROFILE;
+    } catch {
+      return DEFAULT_PROFILE;
     }
-    return DEFAULT_CONTRACTOR_PROFILE;
   });
 
-  // --- Active Orders State ---
+  // --- Persistent Orders ---
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('fieldsign_orders');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('fieldsign_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
-  // --- UI Navigation State ---
+  // --- UI Navigation ---
   const [activeTab, setActiveTab] = useState<'create' | 'orders' | 'settings' | 'sign'>('create');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  // Sync profile to localStorage
+  // Auto-save changes to localStorage
   useEffect(() => {
     localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(contractorProfile));
   }, [contractorProfile]);
 
-  // Sync orders to localStorage
   useEffect(() => {
     localStorage.setItem('fieldsign_orders', JSON.stringify(orders));
   }, [orders]);
@@ -90,17 +86,14 @@ export default function App() {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([
     { id: 'item-1', description: '', quantity: 1, unitPrice: 0 }
   ]);
-  // Inherit the contractor profile default for new orders
   const [orderInstantPaymentEnabled, setOrderInstantPaymentEnabled] = useState(
     contractorProfile.enableInstantPayment
   );
 
-  // Keep order instant payment flag in sync if contractor changes their default
   useEffect(() => {
     setOrderInstantPaymentEnabled(contractorProfile.enableInstantPayment);
   }, [contractorProfile.enableInstantPayment]);
 
-  // --- Item Handlers ---
   const handleAddItem = () => {
     setOrderItems((prev) => [
       ...prev,
@@ -108,7 +101,7 @@ export default function App() {
     ]);
   };
 
-  const handleUpdateItem = (id: string, field: keyof OrderItem, value: any) => {
+  const handleUpdateItem = (id: string, field: keyof OrderItem, value: string | number) => {
     setOrderItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
     );
@@ -121,10 +114,12 @@ export default function App() {
   };
 
   const calculateTotal = () => {
-    return orderItems.reduce((acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+    return orderItems.reduce(
+      (acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+      0
+    );
   };
 
-  // --- Order Creation Handler ---
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim()) {
@@ -136,7 +131,7 @@ export default function App() {
       id: `ord_${Date.now()}`,
       orderNumber: `FS-${Math.floor(100000 + Math.random() * 900000)}`,
       createdAt: new Date().toISOString(),
-      contractor: { ...contractorProfile }, // Snapshots current profile
+      contractor: { ...contractorProfile },
       clientName,
       clientEmail,
       clientPhone,
@@ -144,32 +139,26 @@ export default function App() {
       items: orderItems,
       notes: orderNotes,
       totalAmount: calculateTotal(),
-      paymentStatus: 'UNPAID', // Always unpaid upon creation
-      enableInstantPayment: orderInstantPaymentEnabled // Strictly inherits toggle state
+      paymentStatus: 'UNPAID',
+      enableInstantPayment: orderInstantPaymentEnabled
     };
 
     setOrders((prev) => [newOrder, ...prev]);
-
-    // Reset Form
     setClientName('');
     setClientEmail('');
     setClientPhone('');
     setClientAddress('');
     setOrderNotes('');
     setOrderItems([{ id: `item-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 }]);
-    
-    // Direct user to view the newly created order
     setSelectedOrderId(newOrder.id);
     setActiveTab('orders');
   };
 
-  // --- Manual Payment Status Toggle (Contractor Confirmation) ---
   const handleTogglePaymentStatus = (orderId: string) => {
     setOrders((prev) =>
       prev.map((ord) => {
         if (ord.id === orderId) {
-          const nextStatus = ord.paymentStatus === 'PAID' ? 'UNPAID' : 'PAID';
-          return { ...ord, paymentStatus: nextStatus };
+          return { ...ord, paymentStatus: ord.paymentStatus === 'PAID' ? 'UNPAID' : 'PAID' };
         }
         return ord;
       })
@@ -177,7 +166,6 @@ export default function App() {
   };
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-      {/* --- Top Navigation Header --- */}
       <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
@@ -217,9 +205,6 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
-        {/* ========================================================= */}
-        {/* --- SETTINGS TAB: Manage Contractor Business Info --- */}
-        {/* ========================================================= */}
         {activeTab === 'settings' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto overflow-hidden">
             <div className="p-6 border-b border-slate-100">
@@ -318,10 +303,6 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* ========================================================= */}
-        {/* --- CREATE TAB: Order Creation Form --- */}
-        {/* ========================================================= */}
         {activeTab === 'create' && (
           <form onSubmit={handleCreateOrder} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
@@ -332,13 +313,12 @@ export default function App() {
               <div className="text-right text-xs text-slate-500">
                 <span>Contractor: </span>
                 <span className="font-semibold text-slate-700">
-                  {contractorProfile.businessName || 'Profile Incomplete (Set in Settings)'}
+                  {contractorProfile.businessName || 'Set in Settings'}
                 </span>
               </div>
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Client Info Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
@@ -379,7 +359,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                    Service / Job Location
+                    Service Location
                   </label>
                   <input
                     type="text"
@@ -391,7 +371,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Line Items */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
                   Scope of Work & Materials
@@ -443,7 +422,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Order Notes */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
                   Terms / Notes
@@ -457,7 +435,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Per-Order Payment Toggle */}
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
                 <div>
                   <label htmlFor="orderPaymentToggle" className="text-sm font-bold text-slate-900 cursor-pointer">
@@ -476,7 +453,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Order Total & Submit */}
               <div className="flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-slate-100 gap-4">
                 <div className="text-2xl font-bold text-slate-900">
                   Total: ${calculateTotal().toFixed(2)}
@@ -491,9 +467,7 @@ export default function App() {
             </div>
           </form>
         )}
-        {/* ========================================================= */}
-        {/* --- ORDERS TAB: Order History & Manual Payment Controls -- */}
-        {/* ========================================================= */}
+
         {activeTab === 'orders' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -525,7 +499,6 @@ export default function App() {
                       }`}
                     >
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        {/* Order Details Header */}
                         <div>
                           <div className="flex items-center space-x-3">
                             <span className="font-mono font-bold text-slate-900 text-lg">{ord.orderNumber}</span>
@@ -552,20 +525,18 @@ export default function App() {
                           <div className="mt-1 text-sm text-slate-600 space-x-2">
                             <span className="font-semibold text-slate-800">{ord.clientName}</span>
                             <span>•</span>
-                            <span>{ord.clientPhone || ord.clientEmail || 'No contact provided'}</span>
+                            <span>{ord.clientPhone || ord.clientEmail || 'No contact'}</span>
                             <span>•</span>
-                            <span className="text-slate-400">Created: {new Date(ord.createdAt).toLocaleDateString()}</span>
+                            <span className="text-slate-400">{new Date(ord.createdAt).toLocaleDateString()}</span>
                           </div>
                         </div>
 
-                        {/* Order Total & Actions */}
                         <div className="flex flex-wrap items-center gap-3">
                           <div className="text-right mr-2">
                             <div className="text-xs uppercase font-semibold text-slate-400">Order Total</div>
                             <div className="text-lg font-bold text-slate-900">${ord.totalAmount.toFixed(2)}</div>
                           </div>
 
-                          {/* Contractor Verification Toggle */}
                           <button
                             type="button"
                             onClick={() => handleTogglePaymentStatus(ord.id)}
@@ -578,7 +549,6 @@ export default function App() {
                             {ord.paymentStatus === 'PAID' ? 'Mark as Unpaid' : '✓ Confirm Payment Received'}
                           </button>
 
-                          {/* Open Client Signing Modal/View */}
                           <button
                             type="button"
                             onClick={() => {
@@ -591,22 +561,6 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-
-                      {/* Line Item Preview Accordion */}
-                      <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 flex flex-wrap justify-between items-center gap-2">
-                        <div>
-                          <span>Items: </span>
-                          <span className="text-slate-700 font-medium">
-                            {ord.items.map((i) => `${i.description || 'Item'} (${i.quantity}x)`).join(', ')}
-                          </span>
-                        </div>
-                        <div>
-                          <span>Instant Checkout Status: </span>
-                          <span className="font-semibold text-slate-700">
-                            {ord.enableInstantPayment ? 'Enabled' : 'Disabled'}
-                          </span>
-                        </div>
-                      </div>
                     </div>
                   );
                 })}
@@ -614,9 +568,6 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ========================================================= */}
-        {/* --- SIGN TAB: Client Signing View & Guarded Actions ----- */}
-        {/* ========================================================= */}
         {activeTab === 'sign' && selectedOrderId && (() => {
           const currentOrder = orders.find((o) => o.id === selectedOrderId);
           if (!currentOrder) {
@@ -635,7 +586,6 @@ export default function App() {
 
           return (
             <div className="max-w-3xl mx-auto space-y-6">
-              {/* Back Bar */}
               <div className="flex justify-between items-center">
                 <button
                   onClick={() => setActiveTab('orders')}
@@ -648,9 +598,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Printable / Viewable Agreement */}
               <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-8 sm:p-10 space-y-8">
-                {/* Document Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-slate-100 pb-6">
                   <div>
                     <h1 className="text-2xl font-black text-slate-900 tracking-tight">
@@ -671,7 +619,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Client / Location Info */}
                 <div className="bg-slate-50 p-4 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -689,7 +636,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Scope of Work Table */}
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Work Specification</h3>
                   <table className="w-full text-left text-sm">
@@ -723,7 +669,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Notes & Terms */}
                 {currentOrder.notes && (
                   <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-600 border border-slate-200">
                     <span className="font-bold uppercase tracking-wider text-slate-500 block mb-1">Terms & Notes</span>
@@ -731,7 +676,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Signature Block */}
                 <div className="border-t border-slate-200 pt-6">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
                     Authorization & Acceptance
@@ -789,8 +733,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* --- Guarded Instant Payment Section --- */}
-                {/* Strictly hidden if enableInstantPayment is false. Clicking will not mark as PAID without contractor confirmation */}
                 {currentOrder.enableInstantPayment && (
                   <div className="border-t border-slate-200 pt-6 mt-6 bg-amber-50/50 p-5 rounded-xl border border-amber-100">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -799,7 +741,7 @@ export default function App() {
                         <p className="text-xs text-slate-500 mt-0.5">
                           {currentOrder.paymentStatus === 'PAID'
                             ? 'Payment has been verified by the contractor.'
-                            : 'Clicking below opens the payment gateway in a secure window.'}
+                            : 'Online payment link is active for this order.'}
                         </p>
                       </div>
 
@@ -811,9 +753,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            alert(
-                              'Opening external checkout gateway. The order status remains unpaid until verified by the contractor or gateway webhook.'
-                            );
+                            alert('Opening payment gateway. Order status remains unpaid until contractor confirms receipt.');
                           }}
                           className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-lg transition shadow-sm"
                         >
