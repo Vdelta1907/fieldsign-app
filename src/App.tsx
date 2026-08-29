@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import React, { useState, useEffect } from 'react';
 // --- Supabase Credentials ---
 const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
