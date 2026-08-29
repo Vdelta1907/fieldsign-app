@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import './index.css';
 
 // --- CONFIGURATION: INSERT YOUR SUPABASE CREDENTIALS HERE ---
-const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
+const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+const SUPABASE_KEY = 'YOUR_SUPABASE_PUBLISHABLE_KEY';
 
 interface Preset {
   label: string;
@@ -15,6 +15,11 @@ interface OrderRecord {
   id: string;
   order_type: string;
   contractor_company: string;
+  contractor_logo?: string;
+  contractor_license?: string;
+  contractor_phone?: string;
+  contractor_email?: string;
+  custom_terms?: string;
   project_title: string;
   client_name: string;
   client_phone: string;
@@ -54,8 +59,6 @@ export default function App() {
   const [orderType, setOrderType] = useState<'Change Order' | 'New Job Estimate'>('Change Order');
   
   const [isClientMode, setIsClientMode] = useState<boolean>(false);
-  
-  // Toggleable accordion tab filter (null collapses all)
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
 
   const [profile, setProfile] = useState<ContractorProfile>(() => {
@@ -66,7 +69,7 @@ export default function App() {
     return {
       companyName: 'Apex Remodeling & Build',
       licenseNumber: 'GC-VA-89421A',
-      phone: '(555) 728-1920',
+      phone: '(757) 555-0199',
       email: 'ops@apexremodel.com',
       logoDataUrl: '',
       customTerms: DEFAULT_TERMS,
@@ -76,15 +79,26 @@ export default function App() {
   });
 
   // Active Job Form State
-  const [clientName, setClientName] = useState('Sarah Jenkins');
-  const [clientPhone, setClientPhone] = useState('(555) 382-9102');
-  const [projectTitle, setProjectTitle] = useState('Oakwood Master Bath Remodel');
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [projectTitle, setProjectTitle] = useState('');
   const [description, setDescription] = useState('');
   const [cost, setCost] = useState('');
   const [orderPaymentLink, setOrderPaymentLink] = useState('');
   const [photoData1, setPhotoData1] = useState<string>('');
   const [photoData2, setPhotoData2] = useState<string>('');
   
+  // Active Bound Contractor Metadata for loaded orders
+  const [orderContractorName, setOrderContractorName] = useState('');
+  const [orderContractorLogo, setOrderContractorLogo] = useState('');
+  const [orderContractorLicense, setOrderContractorLicense] = useState('');
+  const [orderContractorPhone, setOrderContractorPhone] = useState('');
+  const [orderContractorEmail, setOrderContractorEmail] = useState('');
+  const [orderTerms, setOrderTerms] = useState('');
+
+  // Speech Recognition Active Indicator
+  const [activeListeningField, setActiveListeningField] = useState<string | null>(null);
+
   // Database & Active Order State
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
@@ -101,11 +115,48 @@ export default function App() {
     setFilterTab(prev => prev === tab ? null : tab);
   };
 
+  // Speech Recognition (Dictation) Engine
+  const startDictation = (field: string, setter: (val: string | ((prev: string) => string)) => void) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice dictation is not supported on this browser. Please use keyboard dictation.");
+      return;
+    }
+
+    if (activeListeningField === field) {
+      setActiveListeningField(null);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setActiveListeningField(field);
+
+    recognition.onresult = (event: any) => {
+      const speechText = event.results[0][0].transcript;
+      setter(prev => (prev ? `${prev} ${speechText}` : speechText));
+      setActiveListeningField(null);
+    };
+
+    recognition.onerror = () => {
+      setActiveListeningField(null);
+    };
+
+    recognition.onend = () => {
+      setActiveListeningField(null);
+    };
+
+    recognition.start();
+  };
+
   const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, orderId?: string) => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const targetId = orderId || currentOrderId;
     const url = targetId ? `${window.location.origin}?id=${targetId}` : window.location.href;
-    const bodyText = `Hi ${name}, please review and authorize the ${orderType} for "${project}" ($${amount}): ${url}`;
+    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${orderType} for "${project || 'Job'}" ($${amount}): ${url}`;
     window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
   };
 
@@ -214,15 +265,23 @@ export default function App() {
         const o = data[0];
         setCurrentOrderId(o.id);
         setOrderType(o.order_type || 'Change Order');
-        setProjectTitle(o.project_title);
-        setClientName(o.client_name);
-        setClientPhone(o.client_phone);
-        setDescription(o.description);
-        setCost(o.cost.toString());
+        setProjectTitle(o.project_title || '');
+        setClientName(o.client_name || '');
+        setClientPhone(o.client_phone || '');
+        setDescription(o.description || '');
+        setCost(o.cost?.toString() || '0');
         setPhotoData1(o.photo_data || '');
         setPhotoData2(o.photo_data_2 || '');
         setPaymentStatus(o.payment_status || 'unpaid');
         setOrderPaymentLink(o.payment_link || profile.stripePaymentLink);
+
+        // Map Saved Contractor Profile
+        setOrderContractorName(o.contractor_company || profile.companyName);
+        setOrderContractorLogo(o.contractor_logo || profile.logoDataUrl);
+        setOrderContractorLicense(o.contractor_license || profile.licenseNumber);
+        setOrderContractorPhone(o.contractor_phone || profile.phone);
+        setOrderContractorEmail(o.contractor_email || profile.email);
+        setOrderTerms(o.custom_terms || profile.customTerms || DEFAULT_TERMS);
 
         if (o.status === 'signed') {
           setSignatureData(o.signature_data);
@@ -261,9 +320,14 @@ export default function App() {
         body: JSON.stringify({
           order_type: orderType,
           contractor_company: profile.companyName,
-          project_title: projectTitle,
-          client_name: clientName,
-          client_phone: clientPhone,
+          contractor_logo: profile.logoDataUrl || null,
+          contractor_license: profile.licenseNumber || null,
+          contractor_phone: profile.phone || null,
+          contractor_email: profile.email || null,
+          custom_terms: profile.customTerms || DEFAULT_TERMS,
+          project_title: projectTitle || 'Untitled Project',
+          client_name: clientName || 'Client',
+          client_phone: clientPhone || '',
           description: description,
           cost: parseFloat(cost) || 0,
           status: 'pending',
@@ -384,18 +448,43 @@ export default function App() {
     setView('signed_receipt');
   };
 
-  const handleDownloadPdf = (targetDoc?: { company: string; type: string; project: string; client: string; phone: string; desc: string; amount: string | number; sig?: string; date?: string; docId?: string; isPaid?: boolean; photo1?: string; photo2?: string }) => {
+  const handleDownloadPdf = (targetDoc?: { 
+    company?: string; 
+    logo?: string;
+    license?: string;
+    phone?: string;
+    email?: string;
+    terms?: string;
+    type?: string; 
+    project?: string; 
+    client?: string; 
+    clientPhone?: string; 
+    desc?: string; 
+    amount?: string | number; 
+    sig?: string; 
+    date?: string; 
+    docId?: string; 
+    isPaid?: boolean; 
+    photo1?: string; 
+    photo2?: string 
+  }) => {
     const { jsPDF } = (window as any).jspdf || {};
     if (!jsPDF) {
       alert("PDF library is loading. Please try again.");
       return;
     }
 
-    const dCompany = targetDoc?.company || profile.companyName;
+    const dCompany = targetDoc?.company || orderContractorName || profile.companyName;
+    const dLogo = targetDoc?.logo || orderContractorLogo || profile.logoDataUrl;
+    const dLicense = targetDoc?.license || orderContractorLicense || profile.licenseNumber;
+    const dContractorPhone = targetDoc?.phone || orderContractorPhone || profile.phone;
+    const dContractorEmail = targetDoc?.email || orderContractorEmail || profile.email;
+    const dTerms = targetDoc?.terms || orderTerms || profile.customTerms || DEFAULT_TERMS;
+
     const dType = targetDoc?.type || orderType;
     const dProject = targetDoc?.project || projectTitle;
     const dClient = targetDoc?.client || clientName;
-    const dPhone = targetDoc?.phone || clientPhone;
+    const dClientPhone = targetDoc?.clientPhone || clientPhone;
     const dDesc = targetDoc?.desc || description;
     const dCost = targetDoc?.amount || cost;
     const dSig = targetDoc?.sig || signatureData;
@@ -414,9 +503,9 @@ export default function App() {
     doc.rect(0, 0, 612, 10, 'F');
 
     let textLeftMargin = 40;
-    if (profile.logoDataUrl) {
+    if (dLogo) {
       try {
-        doc.addImage(profile.logoDataUrl, 'JPEG', 40, 26, 45, 45);
+        doc.addImage(dLogo, 'JPEG', 40, 26, 45, 45);
         textLeftMargin = 95;
       } catch (e) {
         textLeftMargin = 40;
@@ -431,7 +520,7 @@ export default function App() {
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text(`License: ${profile.licenseNumber || 'N/A'}  •  Phone: ${profile.phone}  •  ${profile.email}`, textLeftMargin, 56);
+    doc.text(`License: ${dLicense || 'N/A'}  •  Phone: ${dContractorPhone}  •  ${dContractorEmail}`, textLeftMargin, 56);
     doc.text('OFFICIAL WORK AUTHORIZATION & PAYMENT RECORD', textLeftMargin, 68);
 
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -477,7 +566,7 @@ export default function App() {
     doc.text(`Client: ${dClient}`, 326, 122);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(`Phone: ${dPhone}  •  Status: ${dPaid ? 'Direct Paid' : 'Authorized'}`, 326, 138);
+    doc.text(`Phone: ${dClientPhone}  •  Status: ${dPaid ? 'Direct Paid' : 'Authorized'}`, 326, 138);
 
     // Scope & Dual Photo Section
     const hasPhotos = dPhoto1 || dPhoto2;
@@ -533,7 +622,7 @@ export default function App() {
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(113, 63, 18);
-    doc.text(doc.splitTextToSize(profile.customTerms || DEFAULT_TERMS, 512), 50, termsY + 24);
+    doc.text(doc.splitTextToSize(dTerms, 512), 50, termsY + 24);
 
     const sigY = termsY + 54;
     doc.setDrawColor(203, 213, 225);
@@ -542,7 +631,8 @@ export default function App() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text('AUTHORIZED ELECTRONIC SIGNATURE', 52, sigY + 14);
+    // 2. Updated Signature Label
+    doc.text("CLIENT'S AUTHORIZED ELECTRONIC SIGNATURE", 52, sigY + 14);
 
     if (dSig) {
       try { doc.addImage(dSig, 'PNG', 52, sigY + 18, 200, 48); } catch (e) {}
@@ -558,7 +648,6 @@ export default function App() {
     window.open(URL.createObjectURL(pdfBlob), '_blank');
   };
 
-  // Filter orders (empty if accordion tab is collapsed/null)
   const displayedOrders = filterTab === null ? [] : orders.filter(o => {
     if (filterTab === 'pending') return o.status === 'pending';
     if (filterTab === 'signed') return o.status === 'signed';
@@ -589,6 +678,9 @@ export default function App() {
             <button 
               type="button" 
               onClick={() => {
+                setClientName('');
+                setClientPhone('');
+                setProjectTitle('');
                 setDescription('');
                 setCost('');
                 setPhotoData1('');
@@ -680,7 +772,12 @@ export default function App() {
               </div>
               <div className="form-group">
                 <label className="form-label">Office Phone</label>
-                <input type="text" value={profile.phone} onChange={(e) => saveProfile({ ...profile, phone: e.target.value })} />
+                <input 
+                  type="text" 
+                  value={profile.phone} 
+                  onChange={(e) => saveProfile({ ...profile, phone: e.target.value })} 
+                  placeholder="(000) 000-0000"
+                />
               </div>
             </div>
 
@@ -784,14 +881,12 @@ export default function App() {
               </button>
             </div>
 
-            {/* Collapsed Notice */}
             {filterTab === null && (
               <div style={{ textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
                 Tap any status category above to expand orders ▼
               </div>
             )}
 
-            {/* Empty State */}
             {filterTab !== null && displayedOrders.length === 0 && !isLoadingOrders && (
               <div className="card-dark" style={{ textAlign: 'center', padding: '36px 16px' }}>
                 <span style={{ fontSize: '32px' }}>📝</span>
@@ -802,7 +897,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Expanded Orders Feed */}
             {filterTab !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {displayedOrders.map((o) => (
@@ -861,10 +955,15 @@ export default function App() {
                           type="button"
                           onClick={() => handleDownloadPdf({
                             company: o.contractor_company,
+                            logo: o.contractor_logo,
+                            license: o.contractor_license,
+                            phone: o.contractor_phone,
+                            email: o.contractor_email,
+                            terms: o.custom_terms,
                             type: o.order_type,
                             project: o.project_title,
                             client: o.client_name,
-                            phone: o.client_phone,
+                            clientPhone: o.client_phone,
                             desc: o.description,
                             amount: o.cost,
                             photo1: o.photo_data,
@@ -895,7 +994,7 @@ export default function App() {
             )}
           </div>
         )}
-        {/* VIEW 1: CONTRACTOR FORM */}
+        {/* VIEW 1: CONTRACTOR FORM WITH VOICE DICTATION & DUAL PHOTO INPUTS */}
         {view === 'contractor' && !isClientMode && (
           <div className="card-dark">
             <div style={{ display: 'flex', background: '#0b1120', padding: '4px', borderRadius: '10px', marginBottom: '16px', border: '1px solid #1e293b' }}>
@@ -938,26 +1037,83 @@ export default function App() {
 
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Client Name</label>
-                <input type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Client Name</label>
+                  <button 
+                    type="button" 
+                    onClick={() => startDictation('clientName', setClientName)}
+                    style={{ background: activeListeningField === 'clientName' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                  >
+                    {activeListeningField === 'clientName' ? '🔴 Listening...' : '🎙️ Dictate'}
+                  </button>
+                </div>
+                <input 
+                  type="text" 
+                  value={clientName} 
+                  onChange={(e) => setClientName(e.target.value)} 
+                  placeholder="Enter client’s name"
+                />
               </div>
+
               <div className="form-group">
-                <label className="form-label">Client Phone (for SMS)</label>
-                <input type="text" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Client Phone (for SMS)</label>
+                  <button 
+                    type="button" 
+                    onClick={() => startDictation('clientPhone', setClientPhone)}
+                    style={{ background: activeListeningField === 'clientPhone' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                  >
+                    {activeListeningField === 'clientPhone' ? '🔴' : '🎙️'}
+                  </button>
+                </div>
+                <input 
+                  type="text" 
+                  value={clientPhone} 
+                  onChange={(e) => setClientPhone(e.target.value)} 
+                  placeholder="(000) 000-0000"
+                />
               </div>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Project / Job Name</label>
-              <input type="text" value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Project / Job Name</label>
+                <button 
+                  type="button" 
+                  onClick={() => startDictation('projectTitle', setProjectTitle)}
+                  style={{ background: activeListeningField === 'projectTitle' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                >
+                  {activeListeningField === 'projectTitle' ? '🔴 Listening...' : '🎙️ Dictate'}
+                </button>
+              </div>
+              <input 
+                type="text" 
+                value={projectTitle} 
+                onChange={(e) => setProjectTitle(e.target.value)} 
+                placeholder="Enter project name"
+              />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Scope Description</label>
-              <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe labor, materials, or adjustments..." />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Scope Description</label>
+                <button 
+                  type="button" 
+                  onClick={() => startDictation('description', setDescription)}
+                  style={{ background: activeListeningField === 'description' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                >
+                  {activeListeningField === 'description' ? '🔴 Dictating...' : '🎙️ Voice Dictation'}
+                </button>
+              </div>
+              <textarea 
+                rows={3} 
+                value={description} 
+                onChange={(e) => setDescription(e.target.value)} 
+                placeholder="Describe labor, materials, or speak using the mic..." 
+              />
             </div>
 
-                        {/* Dual Photo Attachment Box */}
+            {/* Dual Photo Attachment Box with Camera & Upload Options */}
             <div style={{ background: '#0b1120', border: '1px dashed #334155', borderRadius: '12px', padding: '12px', marginBottom: '14px' }}>
               <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', display: 'block', textAlign: 'center', marginBottom: '8px' }}>
                 📷 Job-Site Evidence (Up to 2 Photos)
@@ -973,31 +1129,16 @@ export default function App() {
                       <button type="button" onClick={() => setPhotoData1('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
                     </div>
                   ) : (
-                    <label style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      background: '#1e293b',
-                      color: '#f8fafc',
-                      border: '1px solid #334155',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      width: '100%',
-                      boxSizing: 'border-box'
-                    }}>
-                      📷 Take Picture
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        capture="environment" 
-                        onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} 
-                        style={{ display: 'none' }} 
-                      />
-                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
+                        📷 Take Picture
+                        <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} style={{ display: 'none' }} />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#0b1120', color: '#94a3b8', border: '1px solid #1e293b', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
+                        📁 Upload Photo
+                        <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData1)} style={{ display: 'none' }} />
+                      </label>
+                    </div>
                   )}
                 </div>
 
@@ -1010,31 +1151,16 @@ export default function App() {
                       <button type="button" onClick={() => setPhotoData2('')} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'block', margin: '4px auto 0 auto' }}>✕ Remove</button>
                     </div>
                   ) : (
-                    <label style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      background: '#1e293b',
-                      color: '#f8fafc',
-                      border: '1px solid #334155',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      width: '100%',
-                      boxSizing: 'border-box'
-                    }}>
-                      📷 Take Picture
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        capture="environment" 
-                        onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} 
-                        style={{ display: 'none' }} 
-                      />
-                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
+                        📷 Take Picture
+                        <input type="file" accept="image/*" capture="environment" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} style={{ display: 'none' }} />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: '#0b1120', color: '#94a3b8', border: '1px solid #1e293b', padding: '6px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>
+                        📁 Upload Photo
+                        <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && processImageUpload(e.target.files[0], setPhotoData2)} style={{ display: 'none' }} />
+                      </label>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1051,17 +1177,17 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 2: CLIENT SIGN-OFF */}
+        {/* VIEW 2: CLIENT SIGN-OFF (MAPS CONTRACTOR INFO) */}
         {view === 'client_review' && (
           <div className="card-light">
             <div className="card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {profile.logoDataUrl && (
-                  <img src={profile.logoDataUrl} alt="Logo" style={{ maxHeight: '35px', borderRadius: '4px' }} />
+                {(orderContractorLogo || profile.logoDataUrl) && (
+                  <img src={orderContractorLogo || profile.logoDataUrl} alt="Logo" style={{ maxHeight: '35px', borderRadius: '4px' }} />
                 )}
                 <div>
                   <span style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
-                    {profile.companyName}
+                    {orderContractorName || profile.companyName}
                   </span>
                   <h3 style={{ fontSize: '18px', fontWeight: 800, marginTop: '2px' }}>{orderType} Authorization</h3>
                 </div>
@@ -1113,7 +1239,7 @@ export default function App() {
                   style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#f59e0b', cursor: 'pointer' }}
                 />
                 <label htmlFor="legalAgree" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer' }}>
-                  <strong>Authorization & Terms:</strong> {profile.customTerms}
+                  <strong>Authorization & Terms:</strong> {orderTerms || profile.customTerms || DEFAULT_TERMS}
                 </label>
               </div>
             </div>
@@ -1126,7 +1252,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Locked Touch Action Canvas */}
               <div className="canvas-wrapper" style={{ touchAction: 'none' }}>
                 <canvas 
                   ref={canvasRef} 
@@ -1202,7 +1327,7 @@ export default function App() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: '#64748b' }}>Contractor:</span>
-                <strong>{profile.companyName}</strong>
+                <strong>{orderContractorName || profile.companyName}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: '#64748b' }}>Client:</span>
