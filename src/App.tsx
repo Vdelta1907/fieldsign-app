@@ -693,9 +693,6 @@ export default function App() {
     (o) => o.status === 'pending' && !archivedOrderIds.includes(o.id)
   ).length;
 
-  const shareableUrl = currentOrderId
-    ? `${window.location.origin}?id=${currentOrderId}`
-    : window.location.href;
   return (
     <div className="app-container">
       {!isClientMode && (
