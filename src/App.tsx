@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import './index.css';
 
 // --- CONFIGURATION: INSERT YOUR SUPABASE CREDENTIALS HERE ---
-const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_KEY = 'YOUR_SUPABASE_PUBLISHABLE_KEY';
+const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
 
 interface Preset {
   label: string;
