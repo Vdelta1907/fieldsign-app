@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import './index.css';
-
-// --- CONFIGURATION: INSERT YOUR SUPABASE CREDENTIALS HERE ---
-const SUPABASE_URL = 'https://dxlzlhoeujlpbrjpjrid.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_tv9skPRoecEhxxaMtLy0cw_5c14zay-';
+import { AuthScreen } from './components/AuthScreen';
+import { supabase } from './lib/supabase';
 
 interface Preset {
   label: string;
@@ -27,11 +26,15 @@ interface OrderRecord {
   cost: number;
   status: string;
   payment_status?: string;
-  payment_link?: string;
+  require_payment_upfront?: boolean;
+  payments_enabled?: boolean;
+  signing_token?: string;
   photo_data?: string;
   photo_data_2?: string;
   signature_data?: string;
   signed_at?: string;
+  signed_at_utc?: string;
+  signer_name?: string;
   created_at?: string;
 }
 
@@ -42,11 +45,14 @@ interface ContractorProfile {
   email: string;
   logoDataUrl: string;
   customTerms: string;
-  stripePaymentLink: string;
   requirePaymentUpfront: boolean;
+  stripeAccountId: string;
+  stripeChargesEnabled: boolean;
+  stripeDetailsSubmitted: boolean;
 }
 
-const DEFAULT_TERMS = "The undersigned authorizes the contractor to execute the described modifications/services. All labor, equipment, and materials will be provided in accordance with the specified terms. Payment for authorized extra work becomes due upon completion or in accordance with original project milestones. Digital signatures captured here carry full legal binding authority under the Uniform Electronic Transactions Act (UETA).";
+const DEFAULT_TERMS = "The undersigned authorizes the contractor to perform the modifications or services described above. Labor, equipment, and materials will be provided in accordance with the stated scope and payment terms. By checking the consent box and signing, the signer confirms their intent to authorize this electronic record and agrees to receive and retain it electronically.";
+const CONSENT_TEXT = 'I agree to conduct this transaction electronically, confirm that I reviewed the scope and amount, and intend my electronic signature to authorize this record.';
 
 const PRESETS: Preset[] = [
   { label: 'Additional Coat of Paint', cost: 280, desc: 'Client requested extra coat of premium satin finish on living room walls.' },
@@ -59,22 +65,27 @@ export default function App() {
   const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
   
   const [isClientMode, setIsClientMode] = useState<boolean>(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [clientLoadError, setClientLoadError] = useState('');
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
 
   const [profile, setProfile] = useState<ContractorProfile>(() => {
     const saved = localStorage.getItem('fieldsign_contractor_profile');
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
+      try { return JSON.parse(saved); } catch {}
     }
     return {
-      companyName: 'Fieldsign',
+      companyName: 'FieldSign',
       licenseNumber: 'GC-VA-89421A',
       phone: '(000) 000-0000',
-      email: 'Info@fieldsign.com',
+      email: 'info@fieldsign.com',
       logoDataUrl: '',
       customTerms: DEFAULT_TERMS,
-      stripePaymentLink: 'https://buy.stripe.com/test_demo',
-      requirePaymentUpfront: true
+      requirePaymentUpfront: false,
+      stripeAccountId: '',
+      stripeChargesEnabled: false,
+      stripeDetailsSubmitted: false
     };
   });
 
@@ -84,7 +95,6 @@ export default function App() {
   const [projectTitle, setProjectTitle] = useState('');
   const [description, setDescription] = useState('');
   const [cost, setCost] = useState('');
-  const [orderPaymentLink, setOrderPaymentLink] = useState('');
   const [photoData1, setPhotoData1] = useState<string>('');
   const [photoData2, setPhotoData2] = useState<string>('');
   
@@ -95,6 +105,9 @@ export default function App() {
   const [orderContractorPhone, setOrderContractorPhone] = useState('');
   const [orderContractorEmail, setOrderContractorEmail] = useState('');
   const [orderTerms, setOrderTerms] = useState('');
+  const [orderRequirePaymentUpfront, setOrderRequirePaymentUpfront] = useState(false);
+  const [orderPaymentsEnabled, setOrderPaymentsEnabled] = useState(false);
+  const [isConnectingStripe, setIsConnectingStripe] = useState(false);
 
   // Speech Recognition Active Indicator
   const [activeListeningField, setActiveListeningField] = useState<string | null>(null);
@@ -103,11 +116,14 @@ export default function App() {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [currentSigningToken, setCurrentSigningToken] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
-  const [acceptedTerms, setAcceptedTerms] = useState<boolean>(true);
-  const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'paid'>('unpaid');
+  const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
+  const [signerName, setSignerName] = useState('');
+  const [hasSignature, setHasSignature] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded'>('unpaid');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawing = useRef(false);
@@ -151,42 +167,105 @@ export default function App() {
       };
 
       recognition.start();
-    } catch (e) {
+    } catch {
       setActiveListeningField(null);
     }
   };
 
-  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, orderId?: string, type?: string) => {
+  const buildSigningUrl = (token: string) => `${window.location.origin}?sign=${encodeURIComponent(token)}`;
+
+  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, signingToken?: string, type?: string) => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const targetId = orderId || currentOrderId;
+    const token = signingToken || currentSigningToken;
     const currentType = type || orderType;
-    const url = targetId ? `${window.location.origin}?id=${targetId}` : window.location.href;
-    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${currentType} for "${project || 'Job'}" ($${amount}): ${url}`;
+    const url = token ? buildSigningUrl(token) : window.location.href;
+    const formattedAmount = Number(amount || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${currentType} for "${project || 'Job'}" (${formattedAmount}): ${url}`;
     window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
   };
 
   const deleteOrderPermanently = async (orderId: string) => {
-    if (!confirm("Are you sure you want to permanently delete this order? This cannot be undone.")) {
+    if (!confirm("Archive this order? It will be removed from your dashboard but retained securely.")) {
       return;
     }
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}`, {
-        method: 'DELETE',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
+      const { error } = await supabase.rpc('archive_order', { p_order_id: orderId });
+      if (error) throw error;
       setOrders(prev => prev.filter(o => o.id !== orderId));
     } catch (err) {
       console.error("Failed to delete order:", err);
-      alert("Error deleting record.");
+      alert("We couldn't archive this order. Please try again.");
     }
   };
 
   const saveProfile = (newProfile: ContractorProfile) => {
     setProfile(newProfile);
     localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(newProfile));
+  };
+
+  const loadContractorProfile = async () => {
+    if (!session) return;
+    const { data, error } = await supabase
+      .from('contractor_profiles')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+    if (error) {
+      console.error('Profile load failed:', error);
+      return;
+    }
+    if (!data) return;
+
+    saveProfile({
+      companyName: data.company_name || 'FieldSign Contractor',
+      licenseNumber: data.license_number || '',
+      phone: data.phone || '',
+      email: data.email || session.user.email || '',
+      logoDataUrl: data.logo_data_url || '',
+      customTerms: data.custom_terms || DEFAULT_TERMS,
+      requirePaymentUpfront: Boolean(data.require_payment_upfront),
+      stripeAccountId: data.stripe_account_id || '',
+      stripeChargesEnabled: Boolean(data.stripe_charges_enabled),
+      stripeDetailsSubmitted: Boolean(data.stripe_details_submitted),
+    });
+  };
+
+  const persistContractorProfile = async () => {
+    if (!session) return;
+    const { error } = await supabase.from('contractor_profiles').upsert({
+      user_id: session.user.id,
+      company_name: profile.companyName.trim() || 'FieldSign Contractor',
+      license_number: profile.licenseNumber.trim() || null,
+      phone: profile.phone.trim() || null,
+      email: profile.email.trim() || session.user.email || null,
+      logo_data_url: profile.logoDataUrl || null,
+      custom_terms: profile.customTerms.trim() || DEFAULT_TERMS,
+      require_payment_upfront: profile.requirePaymentUpfront,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    if (error) throw error;
+  };
+
+  const connectStripe = async () => {
+    setIsConnectingStripe(true);
+    try {
+      await persistContractorProfile();
+      const { data, error } = await supabase.functions.invoke('stripe-connect-onboard');
+      if (error) throw error;
+      if (data?.status === 'connected') {
+        await loadContractorProfile();
+        alert('Stripe is connected and ready to accept payments.');
+      } else if (data?.url) {
+        window.location.assign(data.url);
+      } else {
+        throw new Error('Stripe onboarding did not return a secure link.');
+      }
+    } catch (error) {
+      console.error('Stripe connection failed:', error);
+      alert('We could not open Stripe onboarding. Please try again.');
+    } finally {
+      setIsConnectingStripe(false);
+    }
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -227,28 +306,48 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const orderIdParam = params.get('id');
-    if (orderIdParam) {
+    const signingToken = params.get('sign');
+
+    if (signingToken) {
       setIsClientMode(true);
-      loadOrderFromDb(orderIdParam);
-    } else {
-      setIsClientMode(false);
-      fetchDashboardOrders();
+      setCurrentSigningToken(signingToken);
+      void loadOrderFromDb(signingToken);
+      setAuthReady(true);
+      return;
     }
+
+    setIsClientMode(false);
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthReady(true);
+    });
+
+    return () => authListener.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!isClientMode && session) {
+      void fetchDashboardOrders();
+      void loadContractorProfile();
+    }
+  }, [isClientMode, session]);
 
   const fetchDashboardOrders = async () => {
     setIsLoadingOrders(true);
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      const data = await response.json();
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .is('archived_at', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
       if (Array.isArray(data)) {
-        setOrders(data);
+        setOrders(data as OrderRecord[]);
       }
     } catch (err) {
       console.error('Error fetching dashboard orders:', err);
@@ -257,18 +356,15 @@ export default function App() {
     }
   };
 
-  const loadOrderFromDb = async (orderId: string) => {
+  const loadOrderFromDb = async (signingToken: string) => {
+    setClientLoadError('');
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}&select=*`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      const data = await response.json();
+      const { data, error } = await supabase.rpc('get_order_for_signing', { p_token: signingToken });
+      if (error) throw error;
       if (data && data.length > 0) {
-        const o = data[0];
+        const o = data[0] as OrderRecord;
         setCurrentOrderId(o.id);
+        setCurrentSigningToken(signingToken);
         setOrderType(o.order_type === 'New Job Agreement' ? 'New Job Agreement' : 'Change Order');
         setProjectTitle(o.project_title || '');
         setClientName(o.client_name || '');
@@ -277,8 +373,7 @@ export default function App() {
         setCost(o.cost?.toString() || '0');
         setPhotoData1(o.photo_data || '');
         setPhotoData2(o.photo_data_2 || '');
-        setPaymentStatus(o.payment_status || 'unpaid');
-        setOrderPaymentLink(o.payment_link || profile.stripePaymentLink);
+        setPaymentStatus((o.payment_status as typeof paymentStatus) || 'unpaid');
 
         // Map Saved Contractor Profile
         setOrderContractorName(o.contractor_company || profile.companyName);
@@ -287,17 +382,26 @@ export default function App() {
         setOrderContractorPhone(o.contractor_phone || profile.phone);
         setOrderContractorEmail(o.contractor_email || profile.email);
         setOrderTerms(o.custom_terms || profile.customTerms || DEFAULT_TERMS);
+        setOrderRequirePaymentUpfront(Boolean(o.require_payment_upfront));
+        setOrderPaymentsEnabled(Boolean(o.payments_enabled));
 
         if (o.status === 'signed') {
-          setSignatureData(o.signature_data);
-          setSignTimestamp(o.signed_at);
+          setSignatureData(o.signature_data || null);
+          setSignerName(o.signer_name || o.client_name || '');
+          setSignTimestamp(o.signed_at_utc || o.signed_at || '');
           setView('signed_receipt');
         } else {
+          setAcceptedTerms(false);
+          setSignerName('');
+          setHasSignature(false);
           setView('client_review');
         }
+      } else {
+        setClientLoadError('This signing link is invalid or has expired. Please ask the contractor for a new link.');
       }
     } catch (err) {
       console.error('Error fetching order:', err);
+      setClientLoadError('We could not open this authorization. Please ask the contractor for a new link.');
     }
   };
 
@@ -307,8 +411,9 @@ export default function App() {
   };
 
   const createOrder = async () => {
-    if (!description || !cost) {
-      alert('Please fill out the scope description and cost.');
+    const parsedCost = Number(cost);
+    if (!clientName.trim() || !clientPhone.trim() || !projectTitle.trim() || !description.trim() || !Number.isFinite(parsedCost) || parsedCost <= 0) {
+      alert('Please enter the client, phone number, project, scope description, and a valid amount greater than $0.');
       return;
     }
 
@@ -322,47 +427,34 @@ export default function App() {
         contractor_phone: profile.phone || null,
         contractor_email: profile.email || null,
         custom_terms: profile.customTerms || DEFAULT_TERMS,
-        project_title: projectTitle || 'Untitled Project',
-        client_name: clientName || 'Client',
-        client_phone: clientPhone || '',
-        description: description,
-        cost: parseFloat(cost) || 0,
+        project_title: projectTitle.trim(),
+        client_name: clientName.trim(),
+        client_phone: clientPhone.trim(),
+        description: description.trim(),
+        cost: parsedCost,
         status: 'pending',
         photo_data: photoData1 || null,
         photo_data_2: photoData2 || null,
         payment_status: 'unpaid',
-        payment_link: profile.stripePaymentLink
+        require_payment_upfront: profile.requirePaymentUpfront
       };
 
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(payload)
-      });
+      const { data, error } = await supabase.from('orders').insert(payload).select().single();
+      if (error) throw error;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Supabase Error Response:", errorText);
-        throw new Error(`Database error (${response.status}): Make sure you ran the SQL columns in Supabase.`);
-      }
-
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const savedOrder = data[0];
+      if (data) {
+        const savedOrder = data as OrderRecord;
         setCurrentOrderId(savedOrder.id);
-        setOrderPaymentLink(profile.stripePaymentLink);
+        setCurrentSigningToken(savedOrder.signing_token || null);
         await fetchDashboardOrders();
         setView('dashboard');
-        triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.id, orderType);
+        if (savedOrder.signing_token) {
+          triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.signing_token, orderType);
+        }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Database save error:', err);
-      alert(err.message || 'Failed to save order to Supabase.');
+      alert(err instanceof Error ? err.message : 'Failed to save the order.');
     } finally {
       setIsSaving(false);
     }
@@ -372,10 +464,12 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     if (e.touches && e.touches.length > 0) {
-      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
     } else if (e.clientX !== undefined) {
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
     }
     return null;
   };
@@ -390,6 +484,7 @@ export default function App() {
     if (!ctx) return;
     ctx.beginPath();
     ctx.moveTo(coords.x, coords.y);
+    setHasSignature(true);
   };
 
   const handleDraw = (e: any) => {
@@ -417,52 +512,82 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
+    setHasSignature(false);
   };
+
+  const openSecureCheckout = async (existingWindow?: Window | null) => {
+    if (!currentSigningToken) throw new Error('The secure signing token is missing.');
+    const paymentWindow = existingWindow || window.open('about:blank', '_blank');
+    if (!paymentWindow) throw new Error('Please allow pop-ups to continue to secure payment.');
+
+    const { data, error } = await supabase.functions.invoke('create-checkout', {
+      body: { signingToken: currentSigningToken },
+    });
+    if (error || !data?.url) {
+      paymentWindow.close();
+      throw error || new Error('Secure checkout is unavailable.');
+    }
+    paymentWindow.location.href = data.url;
+  };
+
   const finalizeSignatureAndPay = async (openStripe: boolean = false) => {
     if (!acceptedTerms) {
       alert("Please accept the authorization terms before signing.");
       return;
     }
 
+    if (!signerName.trim()) {
+      alert("Please enter the signer’s full name.");
+      return;
+    }
+
+    if (!hasSignature) {
+      alert("Please draw your signature before authorizing this document.");
+      return;
+    }
+
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !currentSigningToken) return;
 
     const signature = canvas.toDataURL();
-    const timestamp = new Date().toLocaleString();
-    setSignatureData(signature);
-    setSignTimestamp(timestamp);
+    const paymentWindow = openStripe ? window.open('about:blank', '_blank') : null;
 
-    if (currentOrderId) {
+    try {
+      const { data, error } = await supabase.rpc('sign_order', {
+        p_token: currentSigningToken,
+        p_signer_name: signerName.trim(),
+        p_signature_data: signature,
+        p_consent_text: CONSENT_TEXT,
+        p_user_agent: navigator.userAgent,
+        p_payment_requested: openStripe,
+      });
+      if (error) throw error;
+
+      const result = data?.[0];
+      setSignatureData(signature);
+      setSignTimestamp(result?.signed_at_utc || new Date().toISOString());
+      setPaymentStatus(result?.payment_status || (openStripe ? 'pending' : 'unpaid'));
+      setView('signed_receipt');
+    } catch (err) {
+      paymentWindow?.close();
+      console.error('Error recording signature:', err);
+      alert(err instanceof Error ? err.message : 'We could not save the signature. Please try again.');
+      return;
+    }
+
+    if (openStripe) {
       try {
-        await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${currentOrderId}`, {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            status: 'signed',
-            payment_status: openStripe ? 'paid' : 'unpaid',
-            signature_data: signature,
-            signed_at: timestamp
-          })
-        });
-        fetchDashboardOrders();
-      } catch (err) {
-        console.error('Error recording signature:', err);
+        await openSecureCheckout(paymentWindow);
+      } catch (error) {
+        console.error('Checkout failed:', error);
+        alert('Your authorization was saved, but secure payment could not open. Use Continue to Payment to try again.');
       }
+    } else {
+      paymentWindow?.close();
     }
-
-    if (openStripe && (orderPaymentLink || profile.stripePaymentLink)) {
-      window.open(orderPaymentLink || profile.stripePaymentLink, '_blank');
-      setPaymentStatus('paid');
-    }
-
-    setView('signed_receipt');
   };
 
-  const handleDownloadPdf = (targetDoc?: { 
+  const handleDownloadPdf = async (targetDoc?: { 
     company?: string; 
     logo?: string;
     license?: string;
@@ -482,12 +607,7 @@ export default function App() {
     photo1?: string; 
     photo2?: string 
   }) => {
-    const { jsPDF } = (window as any).jspdf || {};
-    if (!jsPDF) {
-      alert("PDF library is loading. Please try again.");
-      return;
-    }
-
+    const { jsPDF } = await import('jspdf');
     const dCompany = targetDoc?.company || orderContractorName || profile.companyName;
     const dLogo = targetDoc?.logo || orderContractorLogo || profile.logoDataUrl;
     const dLicense = targetDoc?.license || orderContractorLicense || profile.licenseNumber;
@@ -519,9 +639,9 @@ export default function App() {
     let textLeftMargin = 40;
     if (dLogo) {
       try {
-        doc.addImage(dLogo, 'JPEG', 40, 26, 45, 45);
+        doc.addImage(dLogo, dLogo.startsWith('data:image/png') ? 'PNG' : 'JPEG', 40, 26, 45, 45);
         textLeftMargin = 95;
-      } catch (e) {
+      } catch {
         textLeftMargin = 40;
       }
     }
@@ -599,15 +719,15 @@ export default function App() {
     doc.setTextColor(15, 23, 42);
 
     if (hasPhotos) {
-      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 250), 52, 196);
+      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 250).slice(0, 12), 52, 196);
       if (dPhoto1) {
-        try { doc.addImage(dPhoto1, 'JPEG', 315, 175, 115, 105); } catch (e) {}
+        try { doc.addImage(dPhoto1, 'JPEG', 315, 175, 115, 105); } catch {}
       }
       if (dPhoto2) {
-        try { doc.addImage(dPhoto2, 'JPEG', 440, 175, 115, 105); } catch (e) {}
+        try { doc.addImage(dPhoto2, 'JPEG', 440, 175, 115, 105); } catch {}
       }
     } else {
-      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 508), 52, 196);
+      doc.text(doc.splitTextToSize(dDesc || 'Work authorization details.', 508).slice(0, 10), 52, 196);
     }
 
     const costY = 165 + scopeHeight + 10;
@@ -624,10 +744,12 @@ export default function App() {
     doc.text(`$${dCost || '0.00'} USD`, 556, costY + 26, { align: 'right' });
 
     const termsY = costY + 48;
+    const termsLines = doc.splitTextToSize(dTerms, 512).slice(0, 8);
+    const termsHeight = Math.max(46, 28 + termsLines.length * 8);
     doc.setFillColor(254, 252, 232);
-    doc.roundedRect(40, termsY, 532, 46, 4, 4, 'F');
+    doc.roundedRect(40, termsY, 532, termsHeight, 4, 4, 'F');
     doc.setDrawColor(254, 240, 138);
-    doc.roundedRect(40, termsY, 532, 46, 4, 4, 'D');
+    doc.roundedRect(40, termsY, 532, termsHeight, 4, 4, 'D');
 
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
@@ -636,9 +758,9 @@ export default function App() {
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(113, 63, 18);
-    doc.text(doc.splitTextToSize(dTerms, 512), 50, termsY + 24);
+    doc.text(termsLines, 50, termsY + 24);
 
-    const sigY = termsY + 54;
+    const sigY = termsY + termsHeight + 8;
     doc.setDrawColor(203, 213, 225);
     doc.roundedRect(40, sigY, 532, 80, 6, 6, 'D');
 
@@ -648,7 +770,7 @@ export default function App() {
     doc.text("CLIENT'S AUTHORIZED ELECTRONIC SIGNATURE", 52, sigY + 14);
 
     if (dSig) {
-      try { doc.addImage(dSig, 'PNG', 52, sigY + 18, 200, 48); } catch (e) {}
+      try { doc.addImage(dSig, 'PNG', 52, sigY + 18, 200, 48); } catch {}
     }
 
     doc.setFont('helvetica', 'normal');
@@ -675,6 +797,31 @@ export default function App() {
     .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
   const signedCount = orders.filter(o => o.status === 'signed').length;
   const pendingCount = orders.filter(o => o.status === 'pending').length;
+  const paidCount = orders.filter(o => o.payment_status === 'paid').length;
+  if (!isClientMode && !authReady) {
+    return <div className="app-loading" role="status">Opening FieldSign…</div>;
+  }
+
+  if (!isClientMode && !session) {
+    return <AuthScreen />;
+  }
+
+  if (isClientMode && clientLoadError) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-card" role="alert">
+          <span className="sub-tag">FieldSign authorization</span>
+          <h1>Link unavailable</h1>
+          <p>{clientLoadError}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (isClientMode && !currentOrderId) {
+    return <div className="app-loading" role="status">Opening secure authorization…</div>;
+  }
+
   return (
     <div className="app-container">
       {!isClientMode && (
@@ -713,6 +860,13 @@ export default function App() {
             >
               ⚙️ Setup
             </button>
+            <button
+              type="button"
+              onClick={() => void supabase.auth.signOut()}
+              className="demo-btn"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       )}
@@ -730,16 +884,23 @@ export default function App() {
             </div>
 
             <div style={{ background: '#0b1120', border: '1px solid #334155', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase' }}>Stripe Payment Link</span>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: profile.stripeChargesEnabled ? '#10b981' : '#38bdf8', textTransform: 'uppercase' }}>
+                {profile.stripeChargesEnabled ? '✓ Stripe Connected' : 'Stripe Payments'}
+              </span>
               <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 10px 0' }}>
-                Paste your Stripe Payment Link.
+                {profile.stripeChargesEnabled
+                  ? 'Client payments are deposited directly into your connected Stripe account.'
+                  : 'Connect your own Stripe account before offering payment during client sign-off.'}
               </p>
-              <input 
-                type="text" 
-                value={profile.stripePaymentLink} 
-                onChange={(e) => saveProfile({ ...profile, stripePaymentLink: e.target.value })} 
-                placeholder="https://buy.stripe.com/..." 
-              />
+              <button
+                type="button"
+                onClick={() => void connectStripe()}
+                disabled={isConnectingStripe}
+                className="btn-secondary"
+                style={{ marginTop: 0 }}
+              >
+                {isConnectingStripe ? 'Opening Stripe…' : profile.stripeChargesEnabled ? 'Review Stripe connection' : 'Connect with Stripe'}
+              </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
                 <input 
                   type="checkbox" 
@@ -749,7 +910,7 @@ export default function App() {
                   style={{ width: '16px', height: '16px', accentColor: '#f59e0b' }}
                 />
                 <label htmlFor="requirePayment" style={{ fontSize: '12px', color: '#cbd5e1', cursor: 'pointer' }}>
-                  Enable Instant Payment Button on signing screen
+                  Offer secure payment after client authorization
                 </label>
               </div>
             </div>
@@ -805,7 +966,7 @@ export default function App() {
               <textarea rows={3} value={profile.customTerms} onChange={(e) => saveProfile({ ...profile, customTerms: e.target.value })} />
             </div>
 
-            <button type="button" onClick={() => { alert('Settings Saved!'); setView('dashboard'); }} className="btn-primary">
+            <button type="button" onClick={() => void persistContractorProfile().then(() => { alert('Settings saved.'); setView('dashboard'); }).catch(() => alert('Settings could not be saved.'))} className="btn-primary">
               ✓ Save Settings & Return
             </button>
           </div>
@@ -828,7 +989,7 @@ export default function App() {
                 <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#38bdf8', marginTop: '2px' }}>
                   ${totalPaidRevenue.toLocaleString()}
                 </h3>
-                <span style={{ fontSize: '10px', color: '#64748b' }}>{pendingCount} pending signature</span>
+                <span style={{ fontSize: '10px', color: '#64748b' }}>{paidCount} confirmed payments</span>
               </div>
             </div>
 
@@ -947,7 +1108,7 @@ export default function App() {
                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button
                         type="button"
-                        onClick={() => triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.id, o.order_type)}
+                        onClick={() => o.signing_token && triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.signing_token, o.order_type)}
                         style={{ flex: 1.2, padding: '8px', borderRadius: '8px', border: '1px solid #10b981', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
                       >
                         💬 Text SMS
@@ -956,8 +1117,9 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}?id=${o.id}`);
-                          alert(`Sign link copied for ${o.client_name}!`);
+                          if (!o.signing_token) return;
+                          void navigator.clipboard.writeText(buildSigningUrl(o.signing_token));
+                          alert(`Secure signing link copied for ${o.client_name}.`);
                         }}
                         style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #334155', background: '#1e293b', color: '#38bdf8', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                       >
@@ -983,7 +1145,7 @@ export default function App() {
                             photo1: o.photo_data,
                             photo2: o.photo_data_2,
                             sig: o.signature_data,
-                            date: o.signed_at,
+                            date: o.signed_at_utc || o.signed_at,
                             docId: o.id,
                             isPaid: o.payment_status === 'paid'
                           })}
@@ -1244,6 +1406,20 @@ export default function App() {
             </div>
 
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label htmlFor="signerName" style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>
+                  Signer’s full legal name
+                </label>
+                <input
+                  id="signerName"
+                  type="text"
+                  autoComplete="name"
+                  value={signerName}
+                  onChange={(e) => setSignerName(e.target.value)}
+                  placeholder="Enter your full name"
+                  style={{ background: '#ffffff', color: '#0f172a', borderColor: '#cbd5e1' }}
+                />
+              </div>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                 <input 
                   type="checkbox" 
@@ -1253,9 +1429,13 @@ export default function App() {
                   style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#f59e0b', cursor: 'pointer' }}
                 />
                 <label htmlFor="legalAgree" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer' }}>
-                  <strong>Authorization & Terms:</strong> {orderTerms || profile.customTerms || DEFAULT_TERMS}
+                  <strong>Electronic consent:</strong> {CONSENT_TEXT}
                 </label>
               </div>
+              <details style={{ marginTop: '10px', fontSize: '11px', color: '#475569', lineHeight: '1.45' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Review authorization and payment terms</summary>
+                <p style={{ marginTop: '7px' }}>{orderTerms || profile.customTerms || DEFAULT_TERMS}</p>
+              </details>
             </div>
 
             <div>
@@ -1283,11 +1463,11 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' }}>
-              {profile.requirePaymentUpfront && (profile.stripePaymentLink || orderPaymentLink) && (
+              {orderRequirePaymentUpfront && orderPaymentsEnabled && (
                 <button 
                   type="button" 
                   onClick={() => finalizeSignatureAndPay(true)} 
-                  disabled={!acceptedTerms}
+                  disabled={!acceptedTerms || !hasSignature || !signerName.trim()}
                   style={{
                     width: '100%',
                     background: '#0f172a',
@@ -1297,8 +1477,8 @@ export default function App() {
                     padding: '14px',
                     fontSize: '15px',
                     fontWeight: 800,
-                    cursor: acceptedTerms ? 'pointer' : 'not-allowed',
-                    opacity: acceptedTerms ? 1 : 0.6,
+                    cursor: acceptedTerms && hasSignature && signerName.trim() ? 'pointer' : 'not-allowed',
+                    opacity: acceptedTerms && hasSignature && signerName.trim() ? 1 : 0.6,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1312,9 +1492,9 @@ export default function App() {
               <button 
                 type="button" 
                 onClick={() => finalizeSignatureAndPay(false)} 
-                disabled={!acceptedTerms}
+                disabled={!acceptedTerms || !hasSignature || !signerName.trim()}
                 className="btn-approve"
-                style={{ opacity: acceptedTerms ? 1 : 0.6, cursor: acceptedTerms ? 'pointer' : 'not-allowed', marginTop: 0 }}
+                style={{ opacity: acceptedTerms && hasSignature && signerName.trim() ? 1 : 0.6, cursor: acceptedTerms && hasSignature && signerName.trim() ? 'pointer' : 'not-allowed', marginTop: 0 }}
               >
                 ✓ Authorize Scope (Pay Later / On Invoice)
               </button>
@@ -1331,7 +1511,7 @@ export default function App() {
 
             <h2 style={{ fontSize: '18px', fontWeight: 800 }}>Document Authorized & Locked</h2>
             <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-              {paymentStatus === 'paid' ? 'Payment processed & record archived.' : 'Permanent record saved in database.'}
+              {paymentStatus === 'paid' ? 'Payment confirmed and the authorization is secured.' : paymentStatus === 'pending' ? 'Authorization saved. Complete payment in the Stripe window.' : 'Authorization saved securely.'}
             </p>
 
             <div style={{ background: '#0b1120', borderRadius: '12px', padding: '14px', margin: '16px 0', textAlign: 'left', border: '1px solid #1e293b', fontSize: '12px' }}>
@@ -1354,7 +1534,7 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: '#64748b' }}>Payment:</span>
                 <strong style={{ color: paymentStatus === 'paid' ? '#38bdf8' : '#f59e0b' }}>
-                  {paymentStatus === 'paid' ? 'Paid via Stripe' : 'Invoice Due Upon Completion'}
+                  {paymentStatus === 'paid' ? 'Paid via Stripe' : paymentStatus === 'pending' ? 'Awaiting Stripe confirmation' : 'Invoice due'}
                 </strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1372,9 +1552,18 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+              {paymentStatus === 'pending' && orderPaymentsEnabled && (
+                <button
+                  type="button"
+                  onClick={() => void openSecureCheckout().catch(() => alert('Secure payment could not open. Please try again.'))}
+                  style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#38bdf8', color: '#0f172a', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  💳 Continue to Secure Payment
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => handleDownloadPdf()}
+                onClick={() => void handleDownloadPdf()}
                 style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#f59e0b', color: '#0f172a', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
               >
                 📄 Open / Download Official 1-Page PDF
