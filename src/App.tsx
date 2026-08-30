@@ -130,8 +130,8 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded'>('unpaid');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const isDrawing = useRef(false);
+const profileSaveInProgress = useRef(false);
+const isDrawing = useRef(false);
   const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
     setFilterTab(prev => prev === tab ? null : tab);
   };
