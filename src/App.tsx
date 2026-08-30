@@ -3,6 +3,9 @@ import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
+import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react';
+const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
 interface Preset {
   label: string;
@@ -844,53 +847,89 @@ if (!isClientMode && !session) {
 
   return (
     <div className="app-container">
-      {!isClientMode && (
-        <div className="demo-banner">
-          <span>⚡ FieldSign Contractor Portal</span>
-          <div className="demo-btn-group">
-            <button 
-              type="button" 
-              onClick={() => { fetchDashboardOrders(); setView('dashboard'); }} 
-              className={`demo-btn ${view === 'dashboard' ? 'active' : ''}`}
-            >
-              📊 Dashboard
-            </button>
-            <button 
-              type="button" 
-              onClick={() => {
-                setOrderType('Change Order');
-                setClientName('');
-                setClientPhone('');
-                setProjectTitle('');
-                setDescription('');
-                setCost('');
-                setPhotoData1('');
-                setPhotoData2('');
-                setCurrentOrderId(null);
-                setView('contractor');
-              }} 
-              className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
-            >
-              + New Order
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setView('settings')} 
-              className={`demo-btn ${view === 'settings' ? 'active' : ''}`}
-            >
-              ⚙️ Setup
-            </button>
-            <button
-              type="button"
-              onClick={() => void supabase.auth.signOut()}
-              className="demo-btn"
-            >
-              Sign out
-            </button>
-          </div>
+   {!isClientMode && (
+  <header className="demo-banner">
+    <span className="demo-brand">⚡ FieldSign Contractor Portal</span>
+
+    <nav className="demo-btn-group" aria-label="Contractor navigation">
+      <button
+        type="button"
+        onClick={() => {
+          void fetchDashboardOrders();
+          setView('dashboard');
+          setIsAccountMenuOpen(false);
+        }}
+        className={`demo-btn ${view === 'dashboard' ? 'active' : ''}`}
+      >
+        📊 Dashboard
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setOrderType('Change Order');
+          setClientName('');
+          setClientPhone('');
+          setProjectTitle('');
+          setDescription('');
+          setCost('');
+          setPhotoData1('');
+          setPhotoData2('');
+          setCurrentOrderId(null);
+          setView('contractor');
+          setIsAccountMenuOpen(false);
+        }}
+        className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
+      >
+        + New Order
+      </button>
+    </nav>
+
+    <div className="account-menu">
+      <button
+        type="button"
+        className="account-menu-trigger"
+        aria-label="Open account menu"
+        aria-haspopup="menu"
+        aria-expanded={isAccountMenuOpen}
+        onClick={() => setIsAccountMenuOpen((open) => !open)}
+      >
+        <UserRound size={19} aria-hidden="true" />
+        <ChevronDown size={13} aria-hidden="true" />
+      </button>
+
+      {isAccountMenuOpen && (
+        <div className="account-dropdown" role="menu">
+          <button
+            type="button"
+            className="account-dropdown-item"
+            role="menuitem"
+            onClick={() => {
+              setView('settings');
+              setIsAccountMenuOpen(false);
+            }}
+          >
+            <Settings size={17} aria-hidden="true" />
+            Profile &amp; settings
+          </button>
+
+          <button
+            type="button"
+            className="account-dropdown-item danger"
+            role="menuitem"
+            onClick={() => {
+              setIsAccountMenuOpen(false);
+              void supabase.auth.signOut();
+            }}
+          >
+            <LogOut size={17} aria-hidden="true" />
+            Sign out
+          </button>
         </div>
       )}
-
+    </div>
+  </header>
+)}
       <div className="main-wrapper">
         {/* VIEW 4: SETTINGS */}
         {view === 'settings' && !isClientMode && (
