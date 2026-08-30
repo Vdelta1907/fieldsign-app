@@ -70,6 +70,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
 
@@ -129,6 +130,7 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded'>('unpaid');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const isDrawing = useRef(false);
   const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
     setFilterTab(prev => prev === tab ? null : tab);
@@ -248,7 +250,23 @@ export default function App() {
     }, { onConflict: 'user_id' });
     if (error) throw error;
   };
+  const saveSettingsAndReturn = async () => {
+  if (profileSaveInProgress.current) return;
 
+  profileSaveInProgress.current = true;
+  setIsSavingProfile(true);
+
+  try {
+    await persistContractorProfile();
+    setView('dashboard');
+  } catch (error) {
+    console.error('Settings save failed:', error);
+    alert('Settings could not be saved. Please try again.');
+  } finally {
+    profileSaveInProgress.current = false;
+    setIsSavingProfile(false);
+  }
+};
   const connectStripe = async () => {
     setIsConnectingStripe(true);
     try {
@@ -1024,9 +1042,15 @@ if (!isClientMode && !session) {
               <textarea rows={3} value={profile.customTerms} onChange={(e) => saveProfile({ ...profile, customTerms: e.target.value })} />
             </div>
 
-            <button type="button" onClick={() => void persistContractorProfile().then(() => { alert('Settings saved.'); setView('dashboard'); }).catch(() => alert('Settings could not be saved.'))} className="btn-primary">
-              ✓ Save Settings & Return
-            </button>
+            <button
+  type="button"
+  onClick={() => void saveSettingsAndReturn()}
+  disabled={isSavingProfile}
+  className="btn-primary"
+  aria-busy={isSavingProfile}
+>
+  {isSavingProfile ? 'Saving settings…' : '✓ Save Settings & Return'}
+</button> 
           </div>
         )}
 
