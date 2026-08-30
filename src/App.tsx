@@ -131,7 +131,8 @@ export default function App() {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 const profileSaveInProgress = useRef(false);
-const isDrawing = useRef(false);
+  const orderSubmissionInProgress = useRef(false);
+  const isDrawing = useRef(false);
   const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
     setFilterTab(prev => prev === tab ? null : tab);
   };
@@ -446,9 +447,13 @@ const isDrawing = useRef(false);
       return;
     }
 
-    setIsSaving(true);
-    try {
-      const payload: Record<string, any> = {
+    if (orderSubmissionInProgress.current) return;
+
+orderSubmissionInProgress.current = true;
+setIsSaving(true);
+
+try {      
+  const payload: Record<string, any> = {
         order_type: orderType,
         contractor_company: profile.companyName,
         contractor_logo: profile.logoDataUrl || null,
@@ -485,8 +490,9 @@ const isDrawing = useRef(false);
       console.error('Database save error:', err);
       alert(err instanceof Error ? err.message : 'Failed to save the order.');
     } finally {
-      setIsSaving(false);
-    }
+  orderSubmissionInProgress.current = false;
+  setIsSaving(false);
+}
   };
 
   const getCoordinates = (e: any) => {
@@ -1429,10 +1435,16 @@ if (!isClientMode && !session) {
               <input type="number" className="price-input" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" />
             </div>
 
-            <button type="button" onClick={createOrder} disabled={isSaving} className="btn-primary">
-              {isSaving ? 'Saving to Database...' : '🚀 Save & Text Link to Client'}
-            </button>
-          </div>
+            <button
+  type="button"
+  onClick={() => void createOrder()}
+  disabled={isSaving}
+  className="btn-primary"
+  aria-busy={isSaving}
+>
+  {isSaving ? 'Saving order securely…' : '🚀 Save & Text Link to Client'}
+</button>    
+</div>
         )}
 
         {/* VIEW 2: CLIENT SIGN-OFF */}
