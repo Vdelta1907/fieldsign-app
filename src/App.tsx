@@ -4,8 +4,6 @@ import './index.css';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
 import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react';
-const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
-const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
 interface Preset {
   label: string;
@@ -71,6 +69,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
 
