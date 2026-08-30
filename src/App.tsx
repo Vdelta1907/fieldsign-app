@@ -67,6 +67,7 @@ export default function App() {
   const [isClientMode, setIsClientMode] = useState<boolean>(false);
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
   const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
 
@@ -303,33 +304,41 @@ export default function App() {
     };
     reader.readAsDataURL(file);
   };
-
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const signingToken = params.get('sign');
+  const params = new URLSearchParams(window.location.search);
+  const signingToken = params.get('sign');
+  const passwordRecovery = params.get('reset-password') === '1';
 
-    if (signingToken) {
-      setIsClientMode(true);
-      setCurrentSigningToken(signingToken);
-      void loadOrderFromDb(signingToken);
-      setAuthReady(true);
-      return;
-    }
+  if (signingToken) {
+    setIsClientMode(true);
+    setCurrentSigningToken(signingToken);
+    void loadOrderFromDb(signingToken);
+    setAuthReady(true);
+    return;
+  }
 
-    setIsClientMode(false);
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-    });
+  setIsClientMode(false);
+  setIsPasswordRecovery(passwordRecovery);
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+  void supabase.auth.getSession().then(({ data }) => {
+    setSession(data.session);
+    setAuthReady(true);
+  });
+
+  const { data: authListener } = supabase.auth.onAuthStateChange(
+    (event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+      }
+
       setSession(nextSession);
       setAuthReady(true);
-    });
+    },
+  );
 
-    return () => authListener.subscription.unsubscribe();
-  }, []);
-
+  return () => authListener.subscription.unsubscribe();
+}, []);
+  
   useEffect(() => {
     if (!isClientMode && session) {
       void fetchDashboardOrders();
@@ -799,13 +808,24 @@ export default function App() {
   const pendingCount = orders.filter(o => o.status === 'pending').length;
   const paidCount = orders.filter(o => o.payment_status === 'paid').length;
   if (!isClientMode && !authReady) {
-    return <div className="app-loading" role="status">Opening FieldSign…</div>;
-  }
+  return <div className="app-loading" role="status">Opening FieldSign…</div>;
+}
 
-  if (!isClientMode && !session) {
-    return <AuthScreen />;
-  }
+if (!isClientMode && isPasswordRecovery) {
+  return (
+    <AuthScreen
+      recoveryMode
+      onRecoveryComplete={() => {
+        setIsPasswordRecovery(false);
+        window.history.replaceState({}, '', window.location.pathname);
+      }}
+    />
+  );
+}
 
+if (!isClientMode && !session) {
+  return <AuthScreen />;
+}
   if (isClientMode && clientLoadError) {
     return (
       <main className="auth-shell">
