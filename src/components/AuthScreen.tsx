@@ -136,8 +136,8 @@ export function AuthScreen({
     : mode === 'sign-up'
       ? 'Create your secure FieldSign contractor account.'
       : mode === 'forgot-password'
-        ? 'Enter your business email and we’ll send you a secure reset link.'
-        : 'Enter your business email and password to access your dashboard.';
+        ? 'Enter your email and we’ll send you a secure reset link.'
+        : 'Enter your email and password to access your dashboard.';
 
   return (
     <main className="auth-shell">
@@ -154,7 +154,7 @@ export function AuthScreen({
           {!recoveryMode && (
             <>
               <label className="form-label" htmlFor="contractorEmail">
-                Business email
+                Email address
               </label>
 
               <div className="auth-input-wrap">
@@ -165,7 +165,7 @@ export function AuthScreen({
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@company.com"
+                  placeholder="name@example.com"
                   required
                 />
               </div>
