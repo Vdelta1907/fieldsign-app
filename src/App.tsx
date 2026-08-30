@@ -199,22 +199,6 @@ const profileSaveInProgress = useRef(false);
   window.location.href =
     `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
 };
-  const bodyText =
-    `Hi ${name || 'there'}, please review and authorize the ` +
-    `${currentType} for "${project || 'Job'}" (${formattedAmount}): ${url}`;
-
-  const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const bodySeparator = isAppleMobile ? '&' : '?';
-  const smsUrl =
-    `sms:${cleanPhone}${bodySeparator}body=${encodeURIComponent(bodyText)}`;
-
-  const smsLink = document.createElement('a');
-  smsLink.href = smsUrl;
-  smsLink.style.display = 'none';
-  document.body.appendChild(smsLink);
-  smsLink.click();
-  smsLink.remove();
-};
   
   const deleteOrderPermanently = async (orderId: string) => {
     if (!confirm("This order will be permanently removed from your dashboard. Are you sure you want to delete it?")) {  
