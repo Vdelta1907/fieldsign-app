@@ -180,18 +180,43 @@ const profileSaveInProgress = useRef(false);
 
   const buildSigningUrl = (token: string) => `${window.location.origin}?sign=${encodeURIComponent(token)}`;
 
-  const triggerNativeSms = (phone: string, name: string, project: string, amount: string | number, signingToken?: string, type?: string) => {
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const token = signingToken || currentSigningToken;
-    const currentType = type || orderType;
-    const url = token ? buildSigningUrl(token) : window.location.href;
-    const formattedAmount = Number(amount || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
-    const bodyText = `Hi ${name || 'there'}, please review and authorize the ${currentType} for "${project || 'Job'}" (${formattedAmount}): ${url}`;
-    window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
-  };
+  const triggerNativeSms = (
+  phone: string,
+  name: string,
+  project: string,
+  amount: string | number,
+  signingToken?: string,
+  type?: string,
+) => {
+  const cleanPhone = phone.replace(/[^0-9+]/g, '');
+  const token = signingToken || currentSigningToken;
+  const currentType = type || orderType;
+  const url = token ? buildSigningUrl(token) : window.location.href;
 
+  const formattedAmount = Number(amount || 0).toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+  });
+
+  const bodyText =
+    `Hi ${name || 'there'}, please review and authorize the ` +
+    `${currentType} for "${project || 'Job'}" (${formattedAmount}): ${url}`;
+
+  const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const bodySeparator = isAppleMobile ? '&' : '?';
+  const smsUrl =
+    `sms:${cleanPhone}${bodySeparator}body=${encodeURIComponent(bodyText)}`;
+
+  const smsLink = document.createElement('a');
+  smsLink.href = smsUrl;
+  smsLink.style.display = 'none';
+  document.body.appendChild(smsLink);
+  smsLink.click();
+  smsLink.remove();
+};
+  
   const deleteOrderPermanently = async (orderId: string) => {
-    if (!confirm("Archive this order? It will be removed from your dashboard but retained securely.")) {
+    if (!confirm("This order will be permanently removed from your dashboard. Are you sure you want to delete it?")) {  
       return;
     }
     try {
