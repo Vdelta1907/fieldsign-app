@@ -188,16 +188,17 @@ const profileSaveInProgress = useRef(false);
   signingToken?: string,
   type?: string,
 ) => {
-  const cleanPhone = phone.replace(/[^0-9+]/g, '');
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
   const token = signingToken || currentSigningToken;
   const currentType = type || orderType;
   const url = token ? buildSigningUrl(token) : window.location.href;
+  const bodyText =
+    `Hi ${name || 'there'}, please review and authorize the ` +
+    `${currentType} for "${project || 'Job'}" ($${amount}): ${url}`;
 
-  const formattedAmount = Number(amount || 0).toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-  });
-
+  window.location.href =
+    `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
+};
   const bodyText =
     `Hi ${name || 'there'}, please review and authorize the ` +
     `${currentType} for "${project || 'Job'}" (${formattedAmount}): ${url}`;
