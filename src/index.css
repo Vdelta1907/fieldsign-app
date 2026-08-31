@@ -517,15 +517,19 @@ canvas {
     border-radius: 16px;
   }
 }
-@media (max-width: 640px) {
+/* iPhone Home Screen app safe areas */
+@media (display-mode: standalone) and (max-width: 640px) {
   .demo-banner {
-    padding-top: calc(10px + env(safe-area-inset-top));
-    padding-right: calc(12px + env(safe-area-inset-right));
-    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-top: max(
+      58px,
+      calc(10px + env(safe-area-inset-top, 0px))
+    );
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
   .app-container {
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
