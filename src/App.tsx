@@ -1357,15 +1357,28 @@ if (!isClientMode && !session) {
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <label className="form-label" style={{ margin: 0 }}>Client Name</label>
-                  <button 
-                    type="button" 
-                    onClick={() =>
-  startDictation('clientName', clientName, setClientName)
-}
-                    style={{ background: activeListeningField === 'clientName' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                  >
-                    {activeListeningField === 'clientName' ? '🔴 Listening...' : '🎙️ Dictate'}
-                  </button>
+                  <button
+  type="button"
+  onClick={() =>
+    startDictation('clientName', clientName, setClientName)
+  }
+  className={`voice-dictation-btn ${
+    activeListeningField === 'clientName' ? 'is-listening' : ''
+  }`}
+  aria-pressed={activeListeningField === 'clientName'}
+>
+  <AudioLines size={15} aria-hidden="true" />
+  <span>Voice Dictation</span>
+
+  {activeListeningField === 'clientName' && (
+    <span className="voice-wave" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  )}
+</button> 
                 </div>
                 <input 
                   type="text" 
@@ -1378,15 +1391,28 @@ if (!isClientMode && !session) {
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <label className="form-label" style={{ margin: 0 }}>Client Phone (for SMS)</label>
-                  <button 
-                    type="button" 
-                    onClick={() =>
-  startDictation('clientPhone', clientPhone, setClientPhone)
-}
-                    style={{ background: activeListeningField === 'clientPhone' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                  >
-                    {activeListeningField === 'clientPhone' ? '🔴' : '🎙️'}
-                  </button>
+                  <button
+  type="button"
+  onClick={() =>
+    startDictation('clientPhone', clientPhone, setClientPhone)
+  }
+  className={`voice-dictation-btn ${
+    activeListeningField === 'clientPhone' ? 'is-listening' : ''
+  }`}
+  aria-pressed={activeListeningField === 'clientPhone'}
+>
+  <AudioLines size={15} aria-hidden="true" />
+  <span>Voice Dictation</span>
+
+  {activeListeningField === 'clientPhone' && (
+    <span className="voice-wave" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  )}
+</button> 
                 </div>
                 <input 
                   type="text" 
