@@ -3,7 +3,13 @@ import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
-import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react';
+import {
+  AudioLines,
+  ChevronDown,
+  LogOut,
+  Settings,
+  UserRound,
+} from 'lucide-react';
 
 interface Preset {
   label: string;
@@ -130,7 +136,8 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded'>('unpaid');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-const profileSaveInProgress = useRef(false);
+  const speechRecognitionRef = useRef<any>(null);
+  const profileSaveInProgress = useRef(false);
   const orderSubmissionInProgress = useRef(false);
   const isDrawing = useRef(false);
   const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
@@ -138,46 +145,83 @@ const profileSaveInProgress = useRef(false);
   };
 
   // Speech Recognition (Dictation) Engine
-  const startDictation = (field: string, setter: (val: string | ((prev: string) => string)) => void) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice dictation is not supported on this browser. Please use the microphone on your keyboard.");
-      return;
-    }
+  const startDictation = (
+  field: string,
+  currentValue: string,
+  setter: (value: string) => void,
+) => {
+  const SpeechRecognition =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition;
 
-    if (activeListeningField === field) {
-      setActiveListeningField(null);
-      return;
-    }
+  if (!SpeechRecognition) {
+    alert(
+      'Voice dictation is not supported in this browser. Please use the microphone on your keyboard.',
+    );
+    return;
+  }
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+  if (activeListeningField === field) {
+    speechRecognitionRef.current?.stop();
+    speechRecognitionRef.current = null;
+    setActiveListeningField(null);
+    return;
+  }
 
-      setActiveListeningField(field);
+  speechRecognitionRef.current?.stop();
 
-      recognition.onresult = (event: any) => {
-        const speechText = event.results[0][0].transcript;
-        setter(prev => (prev ? `${prev} ${speechText}` : speechText));
+  try {
+    const recognition = new SpeechRecognition();
+    const originalText = currentValue.trim();
+    let finalTranscript = '';
+
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const transcript = event.results[index][0].transcript.trim();
+
+        if (event.results[index].isFinal) {
+          finalTranscript += `${transcript} `;
+        } else {
+          interimTranscript += `${transcript} `;
+        }
+      }
+
+      setter(
+        [originalText, finalTranscript.trim(), interimTranscript.trim()]
+          .filter(Boolean)
+          .join(' '),
+      );
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error !== 'aborted') {
+        console.error('Voice dictation error:', event.error);
+      }
+    };
+
+    recognition.onend = () => {
+      if (speechRecognitionRef.current === recognition) {
+        speechRecognitionRef.current = null;
         setActiveListeningField(null);
-      };
+      }
+    };
 
-      recognition.onerror = () => {
-        setActiveListeningField(null);
-      };
-
-      recognition.onend = () => {
-        setActiveListeningField(null);
-      };
-
-      recognition.start();
-    } catch {
-      setActiveListeningField(null);
-    }
-  };
-
+    speechRecognitionRef.current = recognition;
+    setActiveListeningField(field);
+    recognition.start();
+  } catch {
+    speechRecognitionRef.current = null;
+    setActiveListeningField(null);
+  }
+};
+  
   const buildSigningUrl = (token: string) => `${window.location.origin}?sign=${encodeURIComponent(token)}`;
 
   const triggerNativeSms = (
@@ -1315,7 +1359,9 @@ if (!isClientMode && !session) {
                   <label className="form-label" style={{ margin: 0 }}>Client Name</label>
                   <button 
                     type="button" 
-                    onClick={() => startDictation('clientName', setClientName)}
+                    onClick={() =>
+  startDictation('clientName', clientName, setClientName)
+}
                     style={{ background: activeListeningField === 'clientName' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
                   >
                     {activeListeningField === 'clientName' ? '🔴 Listening...' : '🎙️ Dictate'}
@@ -1334,7 +1380,9 @@ if (!isClientMode && !session) {
                   <label className="form-label" style={{ margin: 0 }}>Client Phone (for SMS)</label>
                   <button 
                     type="button" 
-                    onClick={() => startDictation('clientPhone', setClientPhone)}
+                    onClick={() =>
+  startDictation('clientPhone', clientPhone, setClientPhone)
+}
                     style={{ background: activeListeningField === 'clientPhone' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
                   >
                     {activeListeningField === 'clientPhone' ? '🔴' : '🎙️'}
@@ -1352,13 +1400,28 @@ if (!isClientMode && !session) {
             <div className="form-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <label className="form-label" style={{ margin: 0 }}>Project / Job Name</label>
-                <button 
-                  type="button" 
-                  onClick={() => startDictation('projectTitle', setProjectTitle)}
-                  style={{ background: activeListeningField === 'projectTitle' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                >
-                  {activeListeningField === 'projectTitle' ? '🔴 Listening...' : '🎙️ Dictate'}
-                </button>
+                <button
+  type="button"
+  onClick={() =>
+    startDictation('projectTitle', projectTitle, setProjectTitle)
+  }
+  className={`voice-dictation-btn ${
+    activeListeningField === 'projectTitle' ? 'is-listening' : ''
+  }`}
+  aria-pressed={activeListeningField === 'projectTitle'}
+>
+  <AudioLines size={15} aria-hidden="true" />
+  <span>Voice Dictation</span>
+
+  {activeListeningField === 'projectTitle' && (
+    <span className="voice-wave" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  )}
+</button>
               </div>
               <input 
                 type="text" 
@@ -1371,13 +1434,28 @@ if (!isClientMode && !session) {
             <div className="form-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <label className="form-label" style={{ margin: 0 }}>Scope Description</label>
-                <button 
-                  type="button" 
-                  onClick={() => startDictation('description', setDescription)}
-                  style={{ background: activeListeningField === 'description' ? '#ef4444' : '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
-                >
-                  {activeListeningField === 'description' ? '🔴 Dictating...' : '🎙️ Voice Dictation'}
-                </button>
+                <button
+  type="button"
+  onClick={() =>
+    startDictation('description', description, setDescription)
+  }
+  className={`voice-dictation-btn ${
+    activeListeningField === 'description' ? 'is-listening' : ''
+  }`}
+  aria-pressed={activeListeningField === 'description'}
+>
+  <AudioLines size={15} aria-hidden="true" />
+  <span>Voice Dictation</span>
+
+  {activeListeningField === 'description' && (
+    <span className="voice-wave" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  )}
+</button>
               </div>
               <textarea 
                 rows={3} 
