@@ -517,19 +517,13 @@ canvas {
     border-radius: 16px;
   }
 }
-/* iPhone Home Screen app safe areas */
-@media (display-mode: standalone) and (max-width: 640px) {
-  .demo-banner {
-    padding-top: max(
-      58px,
-      calc(10px + env(safe-area-inset-top, 0px))
-    );
-    padding-right: calc(12px + env(safe-area-inset-right, 0px));
-    padding-left: calc(12px + env(safe-area-inset-left, 0px));
-  }
-
-  .app-container {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+/* Lower the logged-in interface below the iPhone status bar */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 640px) {
+    .app-container {
+      padding-top: 48px;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
   }
 }
 
