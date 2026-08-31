@@ -517,6 +517,17 @@ canvas {
     border-radius: 16px;
   }
 }
+@media (max-width: 640px) {
+  .demo-banner {
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    padding-left: calc(12px + env(safe-area-inset-left));
+  }
+
+  .app-container {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
 
 /* Printable 1-Page PDF Styles */
 .printable-document {
