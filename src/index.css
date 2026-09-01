@@ -142,11 +142,12 @@ button:disabled {
 
 .demo-brand {
   grid-area: brand;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
   white-space: nowrap;
 }
-
 .demo-btn-group {
   grid-area: navigation;
   display: flex;
@@ -156,17 +157,18 @@ button:disabled {
 }
 
 .demo-btn {
-  padding: 7px 12px;
+  padding: 8px 13px;
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   border: none;
   cursor: pointer;
   background: transparent;
   color: #0f172a;
   white-space: nowrap;
 }
-
 .demo-btn:hover,
 .demo-btn:focus-visible {
   background: rgba(15, 23, 42, 0.12);
@@ -460,7 +462,7 @@ canvas {
   }
 
   .demo-brand {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .demo-btn-group {
@@ -470,8 +472,8 @@ canvas {
 
   .demo-btn {
     flex: 1;
-    padding: 9px 8px;
-    font-size: 12px;
+    padding: 10px 9px;
+    font-size: 13px;
   }
 
   .account-menu-trigger {
