@@ -869,7 +869,18 @@ try {
     doc.text(`Status: ${dPaid ? 'Paid & Archived' : 'Authorized Document'}`, 350, sigY + 50);
 
     const pdfBlob = doc.output('blob');
-    window.open(URL.createObjectURL(pdfBlob), '_blank');
+const pdfUrl = URL.createObjectURL(pdfBlob);
+
+// Reuse the same PDF preview tab instead of creating a new one each time.
+const pdfWindow = window.open(pdfUrl, 'fieldsign-pdf-preview');
+
+if (!pdfWindow) {
+  // Fallback if the browser blocks the preview window.
+  window.location.assign(pdfUrl);
+}
+
+// Release the temporary file after the browser has loaded it.
+window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
   };
 
   const displayedOrders = filterTab === null ? [] : orders.filter(o => {
@@ -1774,7 +1785,7 @@ if (!isClientMode && !session) {
                 onClick={() => void handleDownloadPdf()}
                 style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#f59e0b', color: '#0f172a', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
               >
-                📄 Open / Download Official 1-Page PDF
+                📄 Open / Download Signed Authorization PDF
               </button>
 
               {!isClientMode && (
