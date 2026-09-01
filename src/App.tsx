@@ -11,12 +11,6 @@ import {
   UserRound,
 } from 'lucide-react';
 
-interface Preset {
-  label: string;
-  cost: number;
-  desc: string;
-}
-
 interface OrderRecord {
   id: string;
   order_type: string;
@@ -61,11 +55,6 @@ interface ContractorProfile {
 const DEFAULT_TERMS = "The undersigned authorizes the contractor to perform the modifications or services described above. Labor, equipment, and materials will be provided in accordance with the stated scope and payment terms. By checking the consent box and signing, the signer confirms their intent to authorize this electronic record and agrees to receive and retain it electronically.";
 const CONSENT_TEXT = 'I agree to conduct this transaction electronically, confirm that I reviewed the scope and amount, and intend my electronic signature to authorize this record.';
 
-const PRESETS: Preset[] = [
-  { label: 'Additional Coat of Paint', cost: 280, desc: 'Client requested extra coat of premium satin finish on living room walls.' },
-  { label: 'Subfloor Drywall Patch', cost: 195, desc: 'Cut out damaged 2x2 section and install reinforced backing plate.' },
-  { label: 'Add Dedicated Outlet', cost: 225, desc: 'Run 12/2 Romex line for kitchen island microwave outlet.' }
-];
 
 export default function App() {
   const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
@@ -87,7 +76,7 @@ export default function App() {
     }
     return {
       companyName: 'FieldSign',
-      licenseNumber: 'GC-VA-89421A',
+      licenseNumber: 'FS-VA-00000',
       phone: '(000) 000-0000',
       email: 'info@fieldsign.com',
       logoDataUrl: '',
@@ -489,10 +478,6 @@ export default function App() {
     }
   };
 
-  const applyPreset = (preset: Preset) => {
-    setDescription(preset.desc);
-    setCost(preset.cost.toString());
-  };
 
   const createOrder = async () => {
     const parsedCost = Number(cost);
@@ -826,7 +811,7 @@ try {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(255, 255, 255);
-    doc.text('TOTAL AUTHORIZED ADJUSTMENT:', 56, costY + 25);
+    doc.text('TOTAL AMOUNT AUTHORIZED :', 56, costY + 25);
 
     doc.setFontSize(16);
     doc.setTextColor(251, 191, 36);
@@ -1350,19 +1335,6 @@ if (!isClientMode && !session) {
               </div>
               <span style={{ fontSize: '24px' }}>📋</span>
             </div>
-
-            {orderType === 'Change Order' && (
-              <>
-                <label className="form-label">Tap to Auto-Fill Template:</label>
-                <div className="presets-grid">
-                  {PRESETS.map((p, idx) => (
-                    <button key={idx} type="button" onClick={() => applyPreset(p)} className="preset-chip">
-                      +{p.label} (${p.cost})
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
 
             <div className="form-row">
               <div className="form-group">
