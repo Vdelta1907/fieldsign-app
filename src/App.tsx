@@ -1340,32 +1340,60 @@ const handleClientResponse = async (
                         <span style={{ fontSize: '16px', fontWeight: 900, color: o.status === 'signed' ? '#10b981' : '#f1f5f9' }}>
                           ${o.cost}
                         </span>
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                          <span
+                        <div
   style={{
-    fontSize: '9px',
-    fontWeight: 800,
-    padding: '2px 6px',
-    borderRadius: '8px',
-    background: ORDER_STATUS_META[o.status].background,
-    color: ORDER_STATUS_META[o.status].color
+    display: 'flex',
+    gap: '4px',
+    justifyContent: 'flex-end',
+    marginTop: '4px'
   }}
 >
-  {ORDER_STATUS_META[o.status].label}
-</span> 
-                          {o.payment_status === 'paid' && (
-                            <p   style={{     
-                              fontSize: '12px',     
-                              color: '#cbd5e1',     
-                              background: '#0b1120',     
-                              padding: '8px 10px',     
-                              borderRadius: '8px',     
-                              margin: '8px 0'   
-                            }} 
-                              >   
-                              {o.description} 
-                            </p>
-                    {(o.status === 'changes_requested' || o.status === 'declined') && (
+  <span
+    style={{
+      fontSize: '9px',
+      fontWeight: 800,
+      padding: '2px 6px',
+      borderRadius: '8px',
+      background: ORDER_STATUS_META[o.status].background,
+      color: ORDER_STATUS_META[o.status].color
+    }}
+  >
+    {ORDER_STATUS_META[o.status].label}
+  </span>
+
+  {o.payment_status === 'paid' && (
+    <span
+      style={{
+        fontSize: '9px',
+        fontWeight: 800,
+        padding: '2px 6px',
+        borderRadius: '8px',
+        background: 'rgba(56, 189, 248, 0.15)',
+        color: '#38bdf8'
+      }}
+    >
+      💳 Paid
+    </span>
+  )}
+</div>
+</div>
+</div>
+
+<p
+  style={{
+    fontSize: '12px',
+    color: '#cbd5e1',
+    background: '#0b1120',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    margin: '8px 0'
+  }}
+>
+  {o.description}
+</p>
+
+{(o.status === 'changes_requested' ||
+  o.status === 'declined') && (
   <div
     style={{
       margin: '8px 0',
@@ -1411,19 +1439,7 @@ const handleClientResponse = async (
     </p>
   </div>
 )}
-                          fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
-                              💳 Paid
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <p style={{ fontSize: '12px', color: '#cbd5e1', background: '#0b1120', padding: '8px 10px', borderRadius: '8px', margin: '8px 0' }}>
-                      {o.description}
-                    </p>
-
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+  <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button
                         type="button"
                         onClick={() => o.signing_token && triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.signing_token, o.order_type)}
