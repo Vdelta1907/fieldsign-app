@@ -16,6 +16,38 @@ type OrderStatus =
   | 'changes_requested'
   | 'declined'
   | 'signed';
+
+const ORDER_STATUS_META: Record<
+  OrderStatus,
+  { label: string; color: string; background: string }
+> = {
+  draft: {
+    label: '✎ Draft',
+    color: '#cbd5e1',
+    background: 'rgba(148, 163, 184, 0.15)'
+  },
+  pending: {
+    label: '⏳ Awaiting Client',
+    color: '#f59e0b',
+    background: 'rgba(245, 158, 11, 0.15)'
+  },
+  changes_requested: {
+    label: '⚠ Changes Requested',
+    color: '#38bdf8',
+    background: 'rgba(56, 189, 248, 0.15)'
+  },
+  declined: {
+    label: '× Declined',
+    color: '#f87171',
+    background: 'rgba(239, 68, 68, 0.15)'
+  },
+  signed: {
+    label: '✓ Signed',
+    color: '#10b981',
+    background: 'rgba(16, 185, 129, 0.15)'
+  }
+};
+
 interface OrderRecord {
   id: string;
   order_type: string;
@@ -901,6 +933,9 @@ window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
     .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
   const signedCount = orders.filter(o => o.status === 'signed').length;
   const pendingCount = orders.filter(o => o.status === 'pending').length;
+  const attentionCount = orders.filter(
+  o => o.status === 'changes_requested' || o.status === 'declined'
+).length;
   const paidCount = orders.filter(o => o.payment_status === 'paid').length;
   if (!isClientMode && !authReady) {
   return <div className="app-loading" role="status">Opening FieldSign…</div>;
@@ -1192,6 +1227,24 @@ const handleClientResponse = async (
               </div>
             </div>
 
+          {attentionCount > 0 && (
+  <div
+    style={{
+      marginBottom: '14px',
+      padding: '11px 12px',
+      border: '1px solid rgba(56, 189, 248, 0.45)',
+      borderRadius: '11px',
+      background: 'rgba(56, 189, 248, 0.1)',
+      color: '#bae6fd',
+      fontSize: '12px',
+      fontWeight: 800,
+      lineHeight: 1.45
+    }}
+  >
+    ⚠ {attentionCount}{' '}
+    {attentionCount === 1 ? 'client response requires' : 'client responses require'} your attention.
+  </div>
+)}
             {/* Collapsible / Accordion Status Buttons */}
             <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
               <button
@@ -1288,11 +1341,77 @@ const handleClientResponse = async (
                           ${o.cost}
                         </span>
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: o.status === 'signed' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: o.status === 'signed' ? '#10b981' : '#f59e0b' }}>
-                            {o.status === 'signed' ? '✓ Signed' : '⏳ Pending'}
-                          </span>
+                          <span
+  style={{
+    fontSize: '9px',
+    fontWeight: 800,
+    padding: '2px 6px',
+    borderRadius: '8px',
+    background: ORDER_STATUS_META[o.status].background,
+    color: ORDER_STATUS_META[o.status].color
+  }}
+>
+  {ORDER_STATUS_META[o.status].label}
+</span> 
                           {o.payment_status === 'paid' && (
-                            <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                            <p   style={{     
+                              fontSize: '12px',     
+                              color: '#cbd5e1',     
+                              background: '#0b1120',     
+                              padding: '8px 10px',     
+                              borderRadius: '8px',     
+                              margin: '8px 0'   
+                            }} 
+                              >   
+                              {o.description} 
+                            </p>
+                    {(o.status === 'changes_requested' || o.status === 'declined') && (
+  <div
+    style={{
+      margin: '8px 0',
+      padding: '10px',
+      borderRadius: '9px',
+      border:
+        o.status === 'changes_requested'
+          ? '1px solid rgba(56, 189, 248, 0.45)'
+          : '1px solid rgba(239, 68, 68, 0.4)',
+      background:
+        o.status === 'changes_requested'
+          ? 'rgba(56, 189, 248, 0.1)'
+          : 'rgba(239, 68, 68, 0.1)'
+    }}
+  >
+    <span
+      style={{
+        display: 'block',
+        marginBottom: '4px',
+        color:
+          o.status === 'changes_requested'
+            ? '#7dd3fc'
+            : '#fca5a5',
+        fontSize: '10px',
+        fontWeight: 900,
+        textTransform: 'uppercase'
+      }}
+    >
+      {o.status === 'changes_requested'
+        ? 'Client requested changes'
+        : 'Client declined this order'}
+    </span>
+
+    <p
+      style={{
+        color: '#e2e8f0',
+        fontSize: '12px',
+        lineHeight: 1.5
+      }}
+    >
+      {o.client_response_note ||
+        'The client did not include an additional message.'}
+    </p>
+  </div>
+)}
+                          fontWeight: 800, padding: '2px 6px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
                               💳 Paid
                             </span>
                           )}
