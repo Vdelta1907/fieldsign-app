@@ -157,6 +157,8 @@ export default function App() {
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [currentSigningToken, setCurrentSigningToken] = useState<string | null>(null);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+const [revisionOpeningId, setRevisionOpeningId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
@@ -529,62 +531,211 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
     }
   };
 
+const openOrderForRevision = async (order: OrderRecord) => {
+  if (revisionOpeningId) return;
 
-  const createOrder = async () => {
-    const parsedCost = Number(cost);
-    if (!clientName.trim() || !clientPhone.trim() || !projectTitle.trim() || !description.trim() || !Number.isFinite(parsedCost) || parsedCost <= 0) {
-      alert('Please enter the client, phone number, project, scope description, and a valid amount greater than $0.');
-      return;
-    }
+  setRevisionOpeningId(order.id);
 
-    if (orderSubmissionInProgress.current) return;
+  try {
+    let activeSigningToken = order.signing_token || null;
 
-orderSubmissionInProgress.current = true;
-setIsSaving(true);
+    // Drafts were already rotated and can simply be reopened.
+    if (order.status !== 'draft') {
+      const { data, error } = await supabase.rpc(
+        'fieldsign_start_revision',
+        {
+          p_order_id: order.id,
+          p_revision_reason:
+            order.client_response_note ||
+            'Contractor initiated an order revision.'
+        }
+      );
 
-try {      
-  const payload: Record<string, any> = {
-        order_type: orderType,
-        contractor_company: profile.companyName,
-        contractor_logo: profile.logoDataUrl || null,
-        contractor_license: profile.licenseNumber || null,
-        contractor_phone: profile.phone || null,
-        contractor_email: profile.email || null,
-        custom_terms: profile.customTerms || DEFAULT_TERMS,
-        project_title: projectTitle.trim(),
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim(),
-        description: description.trim(),
-        cost: parsedCost,
-        status: 'pending',
-        photo_data: photoData1 || null,
-        photo_data_2: photoData2 || null,
-        payment_status: 'unpaid',
-        require_payment_upfront: profile.requirePaymentUpfront
-      };
-
-      const { data, error } = await supabase.from('orders').insert(payload).select().single();
       if (error) throw error;
 
-      if (data) {
-        const savedOrder = data as OrderRecord;
-        setCurrentOrderId(savedOrder.id);
-        setCurrentSigningToken(savedOrder.signing_token || null);
-        await fetchDashboardOrders();
-        setView('dashboard');
-        if (savedOrder.signing_token) {
-          triggerNativeSms(clientPhone, clientName, projectTitle, cost, savedOrder.signing_token, orderType);
-        }
-      }
-    } catch (err: unknown) {
-      console.error('Database save error:', err);
-      alert(err instanceof Error ? err.message : 'Failed to save the order.');
-    } finally {
-  orderSubmissionInProgress.current = false;
-  setIsSaving(false);
-}
-  };
+      const revisionResult = data as {
+        signing_token?: string;
+        revision_number?: number;
+      } | null;
 
+      activeSigningToken =
+        revisionResult?.signing_token || null;
+    }
+
+    setEditingOrderId(order.id);
+    setCurrentOrderId(order.id);
+    setCurrentSigningToken(activeSigningToken);
+
+    setOrderType(
+      order.order_type as
+        | 'Change Order'
+        | 'New Job Agreement'
+    );
+
+    setClientName(order.client_name);
+    setClientPhone(order.client_phone);
+    setProjectTitle(order.project_title);
+    setDescription(order.description);
+    setCost(String(order.cost));
+    setPhotoData1(order.photo_data || '');
+    setPhotoData2(order.photo_data_2 || '');
+
+    setView('contractor');
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  } catch (err: unknown) {
+    console.error('Revision preparation error:', err);
+
+    alert(
+      err instanceof Error
+        ? err.message
+        : 'This order could not be opened for revision.'
+    );
+  } finally {
+    setRevisionOpeningId(null);
+  }
+};
+  const createOrder = async () => {
+  const parsedCost = Number(cost);
+
+  if (
+    !clientName.trim() ||
+    !clientPhone.trim() ||
+    !projectTitle.trim() ||
+    !description.trim() ||
+    !Number.isFinite(parsedCost) ||
+    parsedCost <= 0
+  ) {
+    alert(
+      'Please enter the client, phone number, project, scope description, and a valid amount greater than $0.'
+    );
+    return;
+  }
+
+  if (orderSubmissionInProgress.current) return;
+
+  orderSubmissionInProgress.current = true;
+  setIsSaving(true);
+
+  try {
+    const sharedPayload: Record<string, any> = {
+      order_type: orderType,
+      contractor_company: profile.companyName,
+      contractor_logo: profile.logoDataUrl || null,
+      contractor_license: profile.licenseNumber || null,
+      contractor_phone: profile.phone || null,
+      contractor_email: profile.email || null,
+      custom_terms:
+        profile.customTerms || DEFAULT_TERMS,
+      project_title: projectTitle.trim(),
+      client_name: clientName.trim(),
+      client_phone: clientPhone.trim(),
+      description: description.trim(),
+      cost: parsedCost,
+      photo_data: photoData1 || null,
+      photo_data_2: photoData2 || null,
+      require_payment_upfront:
+        profile.requirePaymentUpfront
+    };
+
+    let savedOrder: OrderRecord;
+
+    if (editingOrderId) {
+      // Keep the revised record as a draft while its contents update.
+      const { data: updatedOrder, error: updateError } =
+        await supabase
+          .from('orders')
+          .update({
+            ...sharedPayload,
+            status: 'draft'
+          })
+          .eq('id', editingOrderId)
+          .select()
+          .single();
+
+      if (updateError) throw updateError;
+      if (!updatedOrder) {
+        throw new Error('The revised order could not be saved.');
+      }
+
+      // Publish the revision and activate its new signing link.
+      const { data: sendResult, error: sendError } =
+        await supabase.rpc(
+          'fieldsign_send_for_review',
+          {
+            p_order_id: editingOrderId
+          }
+        );
+
+      if (sendError) throw sendError;
+
+      const reviewResult = sendResult as {
+        signing_token?: string;
+      } | null;
+
+      savedOrder = {
+        ...(updatedOrder as OrderRecord),
+        status: 'pending',
+        signing_token:
+          reviewResult?.signing_token ||
+          (updatedOrder as OrderRecord).signing_token
+      };
+    } else {
+      const { data: createdOrder, error: insertError } =
+        await supabase
+          .from('orders')
+          .insert({
+            ...sharedPayload,
+            status: 'pending',
+            payment_status: 'unpaid'
+          })
+          .select()
+          .single();
+
+      if (insertError) throw insertError;
+      if (!createdOrder) {
+        throw new Error('The order could not be created.');
+      }
+
+      savedOrder = createdOrder as OrderRecord;
+    }
+
+    setCurrentOrderId(savedOrder.id);
+    setCurrentSigningToken(
+      savedOrder.signing_token || null
+    );
+
+    setEditingOrderId(null);
+
+    await fetchDashboardOrders();
+    setView('dashboard');
+
+    if (savedOrder.signing_token) {
+      triggerNativeSms(
+        savedOrder.client_phone,
+        savedOrder.client_name,
+        savedOrder.project_title,
+        savedOrder.cost,
+        savedOrder.signing_token,
+        savedOrder.order_type
+      );
+    }
+  } catch (err: unknown) {
+    console.error('Database save error:', err);
+
+    alert(
+      err instanceof Error
+        ? err.message
+        : 'Failed to save the order.'
+    );
+  } finally {
+    orderSubmissionInProgress.current = false;
+    setIsSaving(false);
+  }
+};
   const getCoordinates = (e: any) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -1439,6 +1590,39 @@ const handleClientResponse = async (
     </p>
   </div>
 )}
+{o.status !== 'signed' && (
+  <button
+    type="button"
+    onClick={() => void openOrderForRevision(o)}
+    disabled={revisionOpeningId !== null}
+    style={{
+      width: '100%',
+      marginTop: '10px',
+      padding: '9px',
+      borderRadius: '9px',
+      border: '1px solid #38bdf8',
+      background: 'rgba(56, 189, 248, 0.12)',
+      color: '#7dd3fc',
+      fontSize: '11px',
+      fontWeight: 900,
+      cursor:
+        revisionOpeningId !== null
+          ? 'not-allowed'
+          : 'pointer',
+      opacity:
+        revisionOpeningId !== null &&
+        revisionOpeningId !== o.id
+          ? 0.55
+          : 1
+    }}
+  >
+    {revisionOpeningId === o.id
+      ? 'Preparing Secure Revision…'
+      : o.status === 'draft'
+        ? '✎ Continue Editing Draft'
+        : '✎ Revise Order'}
+  </button>
+)}                    
   <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button
                         type="button"
