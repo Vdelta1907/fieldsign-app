@@ -10,7 +10,12 @@ import {
   Settings,
   UserRound,
 } from 'lucide-react';
-
+type OrderStatus =
+  | 'draft'
+  | 'pending'
+  | 'changes_requested'
+  | 'declined'
+  | 'signed';
 interface OrderRecord {
   id: string;
   order_type: string;
@@ -25,7 +30,11 @@ interface OrderRecord {
   client_phone: string;
   description: string;
   cost: number;
-  status: string;
+  status: OrderStatus;
+revision_number?: number;
+client_response_note?: string;
+client_responded_at?: string;
+last_sent_at?: string;
   payment_status?: string;
   require_payment_upfront?: boolean;
   payments_enabled?: boolean;
@@ -123,7 +132,17 @@ export default function App() {
   const [signerName, setSignerName] = useState('');
   const [hasSignature, setHasSignature] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded'>('unpaid');
+  const [clientResponseMode, setClientResponseMode] = useState<
+  'changes_requested' | 'declined' | null
+>(null);
 
+const [clientResponseNote, setClientResponseNote] = useState('');
+const [isSubmittingClientResponse, setIsSubmittingClientResponse] =
+  useState(false);
+
+const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
+  'changes_requested' | 'declined' | null
+>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const profileSaveInProgress = useRef(false);
@@ -917,7 +936,49 @@ if (!isClientMode && !session) {
   if (isClientMode && !currentOrderId) {
     return <div className="app-loading" role="status">Opening secure authorization…</div>;
   }
+  
+const handleClientResponse = async (
+  response: 'changes_requested' | 'declined'
+) => {
+  if (!currentSigningToken) {
+    alert('This signing link is unavailable or no longer valid.');
+    return;
+  }
 
+  const responseNote = clientResponseNote.trim();
+
+  if (response === 'changes_requested' && !responseNote) {
+    alert('Please describe the changes you would like the contractor to make.');
+    return;
+  }
+
+  setIsSubmittingClientResponse(true);
+
+  try {
+    const { error } = await supabase.rpc(
+      'fieldsign_submit_client_response',
+      {
+        p_signing_token: currentSigningToken,
+        p_response: response,
+        p_note: responseNote || null
+      }
+    );
+
+    if (error) throw error;
+
+    setClientResponseSubmitted(response);
+    setClientResponseMode(null);
+  } catch (err: any) {
+    console.error('Client response error:', err);
+
+    alert(
+      err.message ||
+        'Your response could not be recorded. Please try again.'
+    );
+  } finally {
+    setIsSubmittingClientResponse(false);
+  }
+};
   return (
     <div className="app-container">
    {!isClientMode && (
@@ -1545,120 +1606,624 @@ if (!isClientMode && !session) {
         )}
 
         {/* VIEW 2: CLIENT SIGN-OFF */}
-        {view === 'client_review' && (
-          <div className="card-light">
-            <div className="card-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {(orderContractorLogo || profile.logoDataUrl) && (
-                  <img src={orderContractorLogo || profile.logoDataUrl} alt="Logo" style={{ maxHeight: '35px', borderRadius: '4px' }} />
-                )}
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
-                    {orderContractorName || profile.companyName}
-                  </span>
-                  <h3 style={{ fontSize: '18px', fontWeight: 800, marginTop: '2px' }}>{orderType} Authorization</h3>
-                </div>
-              </div>
-              <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '11px', padding: '4px 8px', borderRadius: '12px', fontWeight: 700 }}>
-                Pending Sign-off
-              </span>
-            </div>
+{view === 'client_review' && (
+  clientResponseSubmitted ? (
+    <div className="card-light" style={{ textAlign: 'center' }}>
+      <div
+        style={{
+          width: '52px',
+          height: '52px',
+          margin: '0 auto 14px',
+          borderRadius: '50%',
+          display: 'grid',
+          placeItems: 'center',
+          background:
+            clientResponseSubmitted === 'changes_requested'
+              ? '#e0f2fe'
+              : '#fee2e2',
+          color:
+            clientResponseSubmitted === 'changes_requested'
+              ? '#0369a1'
+              : '#b91c1c',
+          fontSize: '23px',
+          fontWeight: 800
+        }}
+      >
+        {clientResponseSubmitted === 'changes_requested' ? '✎' : '×'}
+      </div>
 
-            <div className="summary-box">
-              <div className="summary-row">
-                <span>Project:</span>
-                <strong>{projectTitle}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Client:</span>
-                <strong>{clientName}</strong>
-              </div>
-              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agreed Scope:</span>
-                <p style={{ marginTop: '4px', color: '#1e293b', fontWeight: 500 }}>{description || 'Scope work details.'}</p>
-              </div>
+      <h2
+        style={{
+          color: '#0f172a',
+          fontSize: '20px',
+          fontWeight: 800
+        }}
+      >
+        {clientResponseSubmitted === 'changes_requested'
+          ? 'Changes Requested'
+          : 'Order Declined'}
+      </h2>
 
-              {(photoData1 || photoData2) && (
-                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
-                    Site Condition Photos:
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    {photoData1 && <img src={photoData1} alt="Site 1" style={{ maxHeight: '110px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />}
-                    {photoData2 && <img src={photoData2} alt="Site 2" style={{ maxHeight: '110px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />}
-                  </div>
-                </div>
+      <p
+        style={{
+          color: '#64748b',
+          fontSize: '13px',
+          lineHeight: 1.6,
+          marginTop: '8px'
+        }}
+      >
+        {clientResponseSubmitted === 'changes_requested'
+          ? `Your requested changes were recorded for ${
+              orderContractorName || profile.companyName
+            }. This order cannot be signed unless the contractor revises and resends it.`
+          : `Your decision was recorded for ${
+              orderContractorName || profile.companyName
+            }. No authorization or payment was completed.`}
+      </p>
+
+      {clientResponseNote && (
+        <div
+          style={{
+            marginTop: '16px',
+            padding: '12px',
+            borderRadius: '10px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            textAlign: 'left'
+          }}
+        >
+          <span
+            style={{
+              display: 'block',
+              marginBottom: '5px',
+              color: '#64748b',
+              fontSize: '10px',
+              fontWeight: 800,
+              textTransform: 'uppercase'
+            }}
+          >
+            Your message
+          </span>
+
+          <p
+            style={{
+              color: '#1e293b',
+              fontSize: '13px',
+              lineHeight: 1.5
+            }}
+          >
+            {clientResponseNote}
+          </p>
+        </div>
+      )}
+
+      <p
+        style={{
+          color: '#94a3b8',
+          fontSize: '11px',
+          marginTop: '16px'
+        }}
+      >
+        You may safely close this page.
+      </p>
+    </div>
+  ) : (
+    <div className="card-light">
+      <div className="card-header">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {(orderContractorLogo || profile.logoDataUrl) && (
+            <img
+              src={orderContractorLogo || profile.logoDataUrl}
+              alt="Logo"
+              style={{
+                maxHeight: '35px',
+                borderRadius: '4px'
+              }}
+            />
+          )}
+
+          <div>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: '#d97706',
+                textTransform: 'uppercase'
+              }}
+            >
+              {orderContractorName || profile.companyName}
+            </span>
+
+            <h3
+              style={{
+                fontSize: '18px',
+                fontWeight: 800,
+                marginTop: '2px'
+              }}
+            >
+              {orderType} Authorization
+            </h3>
+          </div>
+        </div>
+
+        <span
+          style={{
+            background: '#fef3c7',
+            color: '#92400e',
+            fontSize: '11px',
+            padding: '4px 8px',
+            borderRadius: '12px',
+            fontWeight: 700
+          }}
+        >
+          Pending Sign-off
+        </span>
+      </div>
+
+      <div className="summary-box">
+        <div className="summary-row">
+          <span>Project:</span>
+          <strong>{projectTitle}</strong>
+        </div>
+
+        <div className="summary-row">
+          <span>Client:</span>
+          <strong>{clientName}</strong>
+        </div>
+
+        <div
+          style={{
+            marginTop: '8px',
+            paddingTop: '8px',
+            borderTop: '1px solid #e2e8f0'
+          }}
+        >
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#64748b',
+              textTransform: 'uppercase'
+            }}
+          >
+            Agreed Scope:
+          </span>
+
+          <p
+            style={{
+              marginTop: '4px',
+              color: '#1e293b',
+              fontWeight: 500
+            }}
+          >
+            {description || 'Scope work details.'}
+          </p>
+        </div>
+
+        {(photoData1 || photoData2) && (
+          <div
+            style={{
+              marginTop: '8px',
+              paddingTop: '8px',
+              borderTop: '1px solid #e2e8f0'
+            }}
+          >
+            <span
+              style={{
+                display: 'block',
+                marginBottom: '6px',
+                fontSize: '10px',
+                fontWeight: 800,
+                color: '#64748b',
+                textTransform: 'uppercase'
+              }}
+            >
+              Site Condition Photos:
+            </span>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                justifyContent: 'center'
+              }}
+            >
+              {photoData1 && (
+                <img
+                  src={photoData1}
+                  alt="Site 1"
+                  style={{
+                    maxHeight: '110px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1'
+                  }}
+                />
               )}
 
-              <div className="summary-total">
-                <span>Authorized Total:</span>
-                <span>${cost || '0.00'}</span>
-              </div>
+              {photoData2 && (
+                <img
+                  src={photoData2}
+                  alt="Site 2"
+                  style={{
+                    maxHeight: '110px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1'
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="summary-total">
+          <span>Authorized Total:</span>
+          <span>${cost || '0.00'}</span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginBottom: '14px',
+          padding: '12px',
+          border: '1px solid #cbd5e1',
+          borderRadius: '12px',
+          background: '#f8fafc'
+        }}
+      >
+        {!clientResponseMode ? (
+          <>
+            <p
+              style={{
+                color: '#475569',
+                fontSize: '12px',
+                fontWeight: 700,
+                marginBottom: '9px'
+              }}
+            >
+              Not ready to authorize this order?
+            </p>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '8px'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setClientResponseMode('changes_requested');
+                  setClientResponseNote('');
+                }}
+                style={{
+                  padding: '10px',
+                  borderRadius: '9px',
+                  border: '1px solid #38bdf8',
+                  background: '#f0f9ff',
+                  color: '#0369a1',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+              >
+                ✎ Request Changes
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setClientResponseMode('declined');
+                  setClientResponseNote('');
+                }}
+                style={{
+                  padding: '10px',
+                  borderRadius: '9px',
+                  border: '1px solid #fca5a5',
+                  background: '#fff7f7',
+                  color: '#b91c1c',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+              >
+                Decline Order
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <label
+              htmlFor="clientResponseNote"
+              style={{
+                display: 'block',
+                marginBottom: '6px',
+                color: '#334155',
+                fontSize: '12px',
+                fontWeight: 800
+              }}
+            >
+              {clientResponseMode === 'changes_requested'
+                ? 'What should the contractor change?'
+                : 'Reason for declining (optional)'}
+            </label>
+
+            <textarea
+              id="clientResponseNote"
+              value={clientResponseNote}
+              onChange={(e) => setClientResponseNote(e.target.value)}
+              placeholder={
+                clientResponseMode === 'changes_requested'
+                  ? 'Describe the requested correction or revision…'
+                  : 'You may explain why you are declining this order…'
+              }
+              rows={4}
+              style={{
+                background: '#ffffff',
+                color: '#0f172a',
+                borderColor: '#cbd5e1',
+                resize: 'vertical'
+              }}
+            />
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto 1fr',
+                gap: '8px',
+                marginTop: '8px'
+              }}
+            >
+              <button
+                type="button"
+                disabled={isSubmittingClientResponse}
+                onClick={() => {
+                  setClientResponseMode(null);
+                  setClientResponseNote('');
+                }}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '9px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#475569',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: isSubmittingClientResponse
+                    ? 'not-allowed'
+                    : 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  isSubmittingClientResponse ||
+                  (
+                    clientResponseMode === 'changes_requested' &&
+                    !clientResponseNote.trim()
+                  )
+                }
+                onClick={() =>
+                  void handleClientResponse(clientResponseMode)
+                }
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '9px',
+                  border: 'none',
+                  background:
+                    clientResponseMode === 'changes_requested'
+                      ? '#0284c7'
+                      : '#dc2626',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  opacity:
+                    isSubmittingClientResponse ||
+                    (
+                      clientResponseMode === 'changes_requested' &&
+                      !clientResponseNote.trim()
+                    )
+                      ? 0.55
+                      : 1,
+                  cursor:
+                    isSubmittingClientResponse ||
+                    (
+                      clientResponseMode === 'changes_requested' &&
+                      !clientResponseNote.trim()
+                    )
+                      ? 'not-allowed'
+                      : 'pointer'
+                }}
+              >
+                {isSubmittingClientResponse
+                  ? 'Recording Response…'
+                  : clientResponseMode === 'changes_requested'
+                    ? 'Submit Requested Changes'
+                    : 'Confirm Decline'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {!clientResponseMode && (
+        <>
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '10px 12px',
+              marginBottom: '12px'
+            }}
+          >
+            <div style={{ marginBottom: '12px' }}>
+              <label
+                htmlFor="signerName"
+                style={{
+                  display: 'block',
+                  marginBottom: '5px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: '#475569'
+                }}
+              >
+                Signer’s full legal name
+              </label>
+
+              <input
+                id="signerName"
+                type="text"
+                autoComplete="name"
+                value={signerName}
+                onChange={(e) => setSignerName(e.target.value)}
+                placeholder="Enter your full name"
+                style={{
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  borderColor: '#cbd5e1'
+                }}
+              />
             </div>
 
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label htmlFor="signerName" style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>
-                  Signer’s full legal name
-                </label>
-                <input
-                  id="signerName"
-                  type="text"
-                  autoComplete="name"
-                  value={signerName}
-                  onChange={(e) => setSignerName(e.target.value)}
-                  placeholder="Enter your full name"
-                  style={{ background: '#ffffff', color: '#0f172a', borderColor: '#cbd5e1' }}
-                />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                <input 
-                  type="checkbox" 
-                  id="legalAgree" 
-                  checked={acceptedTerms} 
-                  onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#f59e0b', cursor: 'pointer' }}
-                />
-                <label htmlFor="legalAgree" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer' }}>
-                  <strong>Electronic consent:</strong> {CONSENT_TEXT}
-                </label>
-              </div>
-              <details style={{ marginTop: '10px', fontSize: '11px', color: '#475569', lineHeight: '1.45' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Review authorization and payment terms</summary>
-                <p style={{ marginTop: '7px' }}>{orderTerms || profile.customTerms || DEFAULT_TERMS}</p>
-              </details>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px'
+              }}
+            >
+              <input
+                type="checkbox"
+                id="legalAgree"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  marginTop: '2px',
+                  accentColor: '#f59e0b',
+                  cursor: 'pointer'
+                }}
+              />
+
+              <label
+                htmlFor="legalAgree"
+                style={{
+                  fontSize: '11px',
+                  color: '#475569',
+                  lineHeight: '1.4',
+                  cursor: 'pointer'
+                }}
+              >
+                <strong>Electronic consent:</strong> {CONSENT_TEXT}
+              </label>
             </div>
 
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>Sign with finger or stylus:</label>
-                <button type="button" onClick={clearCanvas} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '11px' }}>
-                  ↺ Clear
-                </button>
-              </div>
+            <details
+              style={{
+                marginTop: '10px',
+                fontSize: '11px',
+                color: '#475569',
+                lineHeight: '1.45'
+              }}
+            >
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontWeight: 800
+                }}
+              >
+                Review authorization and payment terms
+              </summary>
 
-              <div className="canvas-wrapper" style={{ touchAction: 'none' }}>
-                <canvas 
-                  ref={canvasRef} 
-                  width={340} 
-                  height={120} 
-                  style={{ touchAction: 'none' }}
-                  onMouseDown={handleStartDraw} 
-                  onMouseMove={handleDraw} 
-                  onMouseUp={handleStopDraw} 
-                  onTouchStart={handleStartDraw} 
-                  onTouchMove={handleDraw} 
-                  onTouchEnd={handleStopDraw} 
-                />
-              </div>
+              <p style={{ marginTop: '7px' }}>
+                {orderTerms ||
+                  profile.customTerms ||
+                  DEFAULT_TERMS}
+              </p>
+            </details>
+          </div>
+
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <label
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#334155'
+                }}
+              >
+                Sign with finger or stylus:
+              </label>
+
+              <button
+                type="button"
+                onClick={clearCanvas}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  fontSize: '11px'
+                }}
+              >
+                ↺ Clear
+              </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' }}>
-              {orderRequirePaymentUpfront && orderPaymentsEnabled && (
-                <button 
-                  type="button" 
-                  onClick={() => finalizeSignatureAndPay(true)} 
-                  disabled={!acceptedTerms || !hasSignature || !signerName.trim()}
+            <div
+              className="canvas-wrapper"
+              style={{ touchAction: 'none' }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={340}
+                height={120}
+                style={{ touchAction: 'none' }}
+                onMouseDown={handleStartDraw}
+                onMouseMove={handleDraw}
+                onMouseUp={handleStopDraw}
+                onTouchStart={handleStartDraw}
+                onTouchMove={handleDraw}
+                onTouchEnd={handleStopDraw}
+              />
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              marginTop: '14px'
+            }}
+          >
+            {orderRequirePaymentUpfront &&
+              orderPaymentsEnabled && (
+                <button
+                  type="button"
+                  onClick={() => finalizeSignatureAndPay(true)}
+                  disabled={
+                    !acceptedTerms ||
+                    !hasSignature ||
+                    !signerName.trim()
+                  }
                   style={{
                     width: '100%',
                     background: '#0f172a',
@@ -1668,31 +2233,63 @@ if (!isClientMode && !session) {
                     padding: '14px',
                     fontSize: '15px',
                     fontWeight: 800,
-                    cursor: acceptedTerms && hasSignature && signerName.trim() ? 'pointer' : 'not-allowed',
-                    opacity: acceptedTerms && hasSignature && signerName.trim() ? 1 : 0.6,
+                    cursor:
+                      acceptedTerms &&
+                      hasSignature &&
+                      signerName.trim()
+                        ? 'pointer'
+                        : 'not-allowed',
+                    opacity:
+                      acceptedTerms &&
+                      hasSignature &&
+                      signerName.trim()
+                        ? 1
+                        : 0.6,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px'
                   }}
                 >
-                  💳 Sign & Pay Now with Stripe (${cost || '0.00'})
+                  💳 Sign & Pay Now with Stripe ($
+                  {cost || '0.00'})
                 </button>
               )}
 
-              <button 
-                type="button" 
-                onClick={() => finalizeSignatureAndPay(false)} 
-                disabled={!acceptedTerms || !hasSignature || !signerName.trim()}
-                className="btn-approve"
-                style={{ opacity: acceptedTerms && hasSignature && signerName.trim() ? 1 : 0.6, cursor: acceptedTerms && hasSignature && signerName.trim() ? 'pointer' : 'not-allowed', marginTop: 0 }}
-              >
-                ✓ Authorize Scope (Pay Later / On Invoice)
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => finalizeSignatureAndPay(false)}
+              disabled={
+                !acceptedTerms ||
+                !hasSignature ||
+                !signerName.trim()
+              }
+              className="btn-approve"
+              style={{
+                opacity:
+                  acceptedTerms &&
+                  hasSignature &&
+                  signerName.trim()
+                    ? 1
+                    : 0.6,
+                cursor:
+                  acceptedTerms &&
+                  hasSignature &&
+                  signerName.trim()
+                    ? 'pointer'
+                    : 'not-allowed',
+                marginTop: 0
+              }}
+            >
+              ✓ Authorize Scope (Pay Later / On Invoice)
+            </button>
           </div>
-        )}
-
+        </>
+      )}
+    </div>
+  )
+)}                 
+              
         {/* VIEW 3: LOCKED RECEIPT */}
         {view === 'signed_receipt' && (
           <div className="card-dark" style={{ textAlign: 'center' }}>
