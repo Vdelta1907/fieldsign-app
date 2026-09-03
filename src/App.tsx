@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { AuthScreen } from './components/AuthScreen';
@@ -456,32 +456,198 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
   return () => authListener.subscription.unsubscribe();
 }, []);
   
-  useEffect(() => {
-    if (!isClientMode && session) {
-      void fetchDashboardOrders();
-      void loadContractorProfile();
-    }
-  }, [isClientMode, session]);
+  // Dashboard request tracking prevents older responses from
+// overwriting newer data or repopulating a signed-out account.
+const dashboardRequestId = useRef(0);
+const dashboardUserId = session?.user.id;
 
-  const fetchDashboardOrders = async () => {
-    setIsLoadingOrders(true);
+const fetchDashboardOrders = useCallback(
+  async (silent = false): Promise<boolean> => {
+    if (!dashboardUserId || isClientMode) return false;
+
+    const requestId = ++dashboardRequestId.current;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      12_000
+    );
+
+    if (!silent) setIsLoadingOrders(true);
+
     try {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .eq('owner_id', dashboardUserId)
         .is('archived_at', null)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .abortSignal(controller.signal);
+
       if (error) throw error;
-      if (Array.isArray(data)) {
-        setOrders(data as OrderRecord[]);
+
+      if (requestId !== dashboardRequestId.current) {
+        return false;
       }
-    } catch (err) {
-      console.error('Error fetching dashboard orders:', err);
+
+      setOrders((data || []) as OrderRecord[]);
+      return true;
+    } catch (error) {
+      if (requestId === dashboardRequestId.current) {
+        console.error('Dashboard refresh failed:', error);
+      }
+
+      // Preserve the existing dashboard if a request fails.
+      return false;
     } finally {
-      setIsLoadingOrders(false);
+      window.clearTimeout(timeoutId);
+
+      if (requestId === dashboardRequestId.current) {
+        setIsLoadingOrders(false);
+      }
+    }
+  },
+  [dashboardUserId, isClientMode]
+);
+
+// Never retain one account's orders when the account changes.
+useEffect(() => {
+  setOrders([]);
+}, [dashboardUserId]);
+
+// Profile loading stays separate from live dashboard updates.
+useEffect(() => {
+  if (!isClientMode && dashboardUserId) {
+    void loadContractorProfile();
+  }
+}, [isClientMode, dashboardUserId]);
+
+useEffect(() => {
+  if (
+    isClientMode ||
+    !dashboardUserId ||
+    view !== 'dashboard'
+  ) {
+    return;
+  }
+
+  let active = true;
+  let connected = false;
+  let refreshing = false;
+  let refreshQueued = false;
+  let lastSuccessfulRefresh = 0;
+
+  const refresh = async (silent = true): Promise<void> => {
+    if (
+      !active ||
+      document.visibilityState !== 'visible' ||
+      !navigator.onLine
+    ) {
+      return;
+    }
+
+    // Combine bursts of events instead of starting many requests.
+    if (refreshing) {
+      refreshQueued = true;
+      return;
+    }
+
+    refreshing = true;
+
+    try {
+      const succeeded = await fetchDashboardOrders(silent);
+
+      if (active) {
+        lastSuccessfulRefresh = succeeded ? Date.now() : 0;
+      }
+    } finally {
+      refreshing = false;
+
+      if (active && refreshQueued) {
+        refreshQueued = false;
+        void refresh();
+      }
     }
   };
 
+  // Load immediately when entering the dashboard.
+  void refresh(false);
+
+  const channel = supabase
+    .channel(`contractor-orders:${dashboardUserId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `owner_id=eq.${dashboardUserId}`
+      },
+      () => {
+        void refresh();
+      }
+    )
+    .subscribe((status, error) => {
+      if (!active) return;
+
+      connected = status === 'SUBSCRIBED';
+
+      if (connected) {
+        // Catch changes made before subscribing or while disconnected.
+        void refresh();
+      } else if (
+        status === 'CHANNEL_ERROR' ||
+        status === 'TIMED_OUT'
+      ) {
+        console.warn(
+          'Live updates interrupted; backup checks remain active.',
+          error
+        );
+      }
+    });
+
+  const onReturn = () => {
+    void refresh();
+  };
+
+  const onOffline = () => {
+    connected = false;
+  };
+
+  document.addEventListener('visibilitychange', onReturn);
+  window.addEventListener('focus', onReturn);
+  window.addEventListener('pageshow', onReturn);
+  window.addEventListener('online', onReturn);
+  window.addEventListener('offline', onOffline);
+
+  // Check every five seconds if live updates are unavailable.
+  // With a live connection, reconcile only once per minute.
+  const backupTimer = window.setInterval(() => {
+    if (refreshing) return;
+
+    if (
+      !connected ||
+      Date.now() - lastSuccessfulRefresh >= 60_000
+    ) {
+      void refresh();
+    }
+  }, 5_000);
+
+  return () => {
+    active = false;
+    refreshQueued = false;
+    dashboardRequestId.current += 1;
+
+    window.clearInterval(backupTimer);
+    document.removeEventListener('visibilitychange', onReturn);
+    window.removeEventListener('focus', onReturn);
+    window.removeEventListener('pageshow', onReturn);
+    window.removeEventListener('online', onReturn);
+    window.removeEventListener('offline', onOffline);
+
+    void supabase.removeChannel(channel);
+  };
+}, [dashboardUserId, isClientMode, view, fetchDashboardOrders]);
+  
   const loadOrderFromDb = async (signingToken: string) => {
     setClientLoadError('');
     try {
