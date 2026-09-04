@@ -655,6 +655,33 @@ useEffect(() => {
       if (error) throw error;
       if (data && data.length > 0) {
         const o = data[0] as OrderRecord;
+        // Only pending orders can display the authorization form.
+// Signed orders can still display their locked receipt.
+if (o.status !== 'pending' && o.status !== 'signed') {
+  setCurrentOrderId(null);
+  setCurrentSigningToken(null);
+  setAcceptedTerms(false);
+  setHasSignature(false);
+  setSignatureData(null);
+  setSignerName('');
+  setClientResponseMode(null);
+
+  if (o.status === 'changes_requested') {
+    setClientLoadError(
+      'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
+    );
+  } else if (o.status === 'declined') {
+    setClientLoadError(
+      'This order has been declined, and this authorization link is now closed. If the contractor revises the order, they will send you a new link.'
+    );
+  } else {
+    setClientLoadError(
+      'This order is not available for authorization. Please ask the contractor for the latest review link.'
+    );
+  }
+
+  return;
+}
         setCurrentOrderId(o.id);
         setCurrentSigningToken(signingToken);
         setOrderType(o.order_type === 'New Job Agreement' ? 'New Job Agreement' : 'Change Order');
