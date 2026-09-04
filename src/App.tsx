@@ -1871,7 +1871,7 @@ const handleClientResponse = async (
                           })}
                           style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
                         >
-                          📄 PDF
+                          📄 View Signed Authorization PDF
                         </button>
                       )}
 
