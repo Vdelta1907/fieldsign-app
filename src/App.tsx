@@ -223,8 +223,17 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
   const speechRecognitionRef = useRef<any>(null);
   const profileSaveInProgress = useRef(false);
   const orderSubmissionInProgress = useRef(false);
-  const newOrderSubmissionIdRef = useRef<string | null>(null);
-  const revisionPublishSubmissionIdRef =
+
+const newOrderSubmissionIdRef =
+  useRef<string | null>(null);
+
+const revisionPublishSubmissionIdRef =
+  useRef<string | null>(null);
+
+const clientResponseSubmissionInProgress =
+  useRef(false);
+
+const clientResponseSubmissionIdRef =
   useRef<string | null>(null);
   const isDrawing = useRef(false);
   const handleTabToggle = (
@@ -2062,42 +2071,81 @@ if (!isClientMode && !session) {
 const handleClientResponse = async (
   response: 'changes_requested' | 'declined'
 ) => {
-  if (!currentSigningToken) {
-    alert('This signing link is unavailable or no longer valid.');
+  if (
+    clientResponseSubmissionInProgress.current ||
+    isSubmittingClientResponse
+  ) {
     return;
   }
 
+  if (!currentSigningToken) {
+    alert(
+      'This signing link is unavailable or no longer valid.'
+    );
+    return;
+  }
+
+  const signingToken = currentSigningToken;
   const responseNote = clientResponseNote.trim();
 
   if (response === 'changes_requested' && !responseNote) {
-    alert('Please describe the changes you would like the contractor to make.');
+    alert(
+      'Please describe the changes you would like the contractor to make.'
+    );
     return;
   }
 
+  const submissionId =
+    clientResponseSubmissionIdRef.current ||
+    window.crypto.randomUUID();
+
+  clientResponseSubmissionIdRef.current = submissionId;
+  clientResponseSubmissionInProgress.current = true;
   setIsSubmittingClientResponse(true);
 
   try {
     const { error } = await supabase.rpc(
-      'fieldsign_submit_client_response',
+      'fieldsign_submit_client_response_v2',
       {
-        p_signing_token: currentSigningToken,
+        p_signing_token: signingToken,
         p_response: response,
-        p_note: responseNote || null
+        p_note: responseNote || null,
+        p_submission_id: submissionId
       }
     );
 
     if (error) throw error;
 
+    clientResponseSubmissionIdRef.current = null;
     setClientResponseSubmitted(response);
     setClientResponseMode(null);
-  } catch (err: any) {
-    console.error('Client response error:', err);
+  } catch (error: unknown) {
+    console.error('Client response error:', error);
 
-    alert(
-      err.message ||
-        'Your response could not be recorded. Please try again.'
-    );
+    const message =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof error.message === 'string'
+        ? error.message
+        : '';
+
+    if (
+      message
+        .toLowerCase()
+        .includes('invalid or no longer active')
+    ) {
+      // Another action may have closed the link.
+      // Load its authoritative state and message.
+      await loadOrderFromDb(signingToken);
+    } else {
+      alert(
+        'We could not confirm whether your response was recorded. ' +
+        'Please check your connection and try again.'
+      );
+    }
   } finally {
+    clientResponseSubmissionInProgress.current = false;
     setIsSubmittingClientResponse(false);
   }
 };
@@ -3546,8 +3594,9 @@ const handleClientResponse = async (
               <button
                 type="button"
                 onClick={() => {
-                  setClientResponseMode('changes_requested');
-                  setClientResponseNote('');
+                  clientResponseSubmissionIdRef.current = null;
+setClientResponseMode('changes_requested');
+setClientResponseNote('');
                 }}
                 style={{
                   padding: '10px',
@@ -3566,8 +3615,9 @@ const handleClientResponse = async (
               <button
                 type="button"
                 onClick={() => {
-                  setClientResponseMode('declined');
-                  setClientResponseNote('');
+                  clientResponseSubmissionIdRef.current = null;
+setClientResponseMode('declined');
+setClientResponseNote('');
                 }}
                 style={{
                   padding: '10px',
@@ -3631,8 +3681,9 @@ const handleClientResponse = async (
                 type="button"
                 disabled={isSubmittingClientResponse}
                 onClick={() => {
-                  setClientResponseMode(null);
-                  setClientResponseNote('');
+                  clientResponseSubmissionIdRef.current = null;
+setClientResponseMode(null);
+setClientResponseNote('');
                 }}
                 style={{
                   padding: '10px 12px',
