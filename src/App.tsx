@@ -2190,7 +2190,7 @@ const handleClientResponse = async (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Approved Volume</span>
+                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Total Approved</span>
                 <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
                   ${totalApprovedRevenue.toLocaleString()}
                 </h3>
