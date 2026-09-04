@@ -177,7 +177,8 @@ export default function App() {
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [currentSigningToken, setCurrentSigningToken] = useState<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-const [revisionOpeningId, setRevisionOpeningId] = useState<string | null>(null);
+  const [isEditingRevision, setIsEditingRevision] = useState(false);
+  const [revisionOpeningId, setRevisionOpeningId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
@@ -766,13 +767,16 @@ const exitOrderEditor = () => {
 
   if (editingOrderId) {
     const confirmed = window.confirm(
-      'Exit this revision?\n\n' +
-      'Any unsaved edits will be discarded. The last saved draft ' +
-      'will remain on your dashboard under All Orders, where you ' +
-      'can choose Continue Editing Draft.\n\n' +
-      'The previous client link will remain closed.'
-    );
-
+  (isEditingRevision
+    ? 'Exit this revision?\n\n'
+    : 'Exit this draft?\n\n') +
+  'Any unsaved edits will be discarded. The last saved draft ' +
+  'will remain on your dashboard under All Orders, where you ' +
+  'can choose Continue Editing Draft.' +
+  (isEditingRevision
+    ? '\n\nThe previous client link will remain closed.'
+    : '')
+);
     if (!confirmed) return;
   } else if (hasFormContent) {
     const confirmed = window.confirm(
@@ -872,6 +876,10 @@ const exitOrderEditor = () => {
     }
 
     setEditingOrderId(order.id);
+    setIsEditingRevision(
+  order.status !== 'draft' ||
+  (order.revision_number ?? 1) > 1
+);
     setCurrentOrderId(order.id);
     setCurrentSigningToken(activeSigningToken);
 
@@ -2648,9 +2656,9 @@ const handleClientResponse = async (
             </div>
 
             <div>
-  {editingOrderId && (
-    <p
-      style={{
+  {editingOrderId && isEditingRevision && (
+  <p
+    style={{
         marginBottom: '12px',
         padding: '10px 12px',
         borderRadius: '9px',
@@ -2697,8 +2705,10 @@ const handleClientResponse = async (
     style={{ marginTop: '10px' }}
   >
     {editingOrderId
-      ? '← Exit Revision'
-      : '← Cancel New Order'}
+  ? isEditingRevision
+    ? '← Exit Revision'
+    : '← Exit Draft'
+  : '← Cancel New Order'}
   </button>
 </div>
           </div>
