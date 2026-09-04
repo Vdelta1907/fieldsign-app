@@ -1561,24 +1561,106 @@ const handleClientResponse = async (
       </button>
 
       <button
-        type="button"
-        onClick={() => {
-          setOrderType('Change Order');
-          setClientName('');
-          setClientPhone('');
-          setProjectTitle('');
-          setDescription('');
-          setCost('');
-          setPhotoData1('');
-          setPhotoData2('');
-          setCurrentOrderId(null);
-          setView('contractor');
-          setIsAccountMenuOpen(false);
-        }}
-        className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
-      >
-        + New Order
-      </button>
+  type="button"
+  disabled={isSaving || revisionOpeningId !== null}
+  onClick={() => {
+    // Do not switch forms while saving or preparing a revision.
+    if (
+      orderSubmissionInProgress.current ||
+      isSaving ||
+      revisionOpeningId !== null
+    ) {
+      return;
+    }
+
+    if (editingOrderId) {
+      const leaveRevision = window.confirm(
+        'Leave this revision and start a new order?\n\n' +
+        'Any unsaved edits will be discarded. The last saved draft ' +
+        'will remain on your dashboard so you can continue editing later. ' +
+        'The previous client link will remain closed.'
+      );
+
+      if (!leaveRevision) return;
+    } else if (
+      view === 'contractor' &&
+      (
+        clientName.trim() ||
+        clientPhone.trim() ||
+        projectTitle.trim() ||
+        description.trim() ||
+        cost.trim() ||
+        photoData1 ||
+        photoData2
+      )
+    ) {
+      const discardNewOrder = window.confirm(
+        'Discard the information in this unsaved order and start a new one?'
+      );
+
+      if (!discardNewOrder) return;
+    }
+
+    // Prevent late dictation results from filling the new form.
+    const recognition = speechRecognitionRef.current;
+    speechRecognitionRef.current = null;
+
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onend = null;
+
+      try {
+        recognition.stop();
+      } catch {
+        // Recognition may already have stopped.
+      }
+    }
+
+    setActiveListeningField(null);
+
+    // A new order must never retain another order's identity.
+    setEditingOrderId(null);
+    setCurrentOrderId(null);
+    setCurrentSigningToken(null);
+
+    setOrderType('Change Order');
+    setClientName('');
+    setClientPhone('');
+    setProjectTitle('');
+    setDescription('');
+    setCost('');
+    setPhotoData1('');
+    setPhotoData2('');
+
+    // Clear metadata and authorization state from previous orders.
+    setOrderContractorName('');
+    setOrderContractorLogo('');
+    setOrderContractorLicense('');
+    setOrderContractorPhone('');
+    setOrderContractorEmail('');
+    setOrderTerms('');
+    setOrderRequirePaymentUpfront(false);
+    setOrderPaymentsEnabled(false);
+
+    setSignatureData(null);
+    setSignTimestamp(null);
+    setSignerName('');
+    setAcceptedTerms(false);
+    setHasSignature(false);
+    setPaymentStatus('unpaid');
+    setClientResponseMode(null);
+    setClientResponseNote('');
+    setClientResponseSubmitted(null);
+    setClientLoadError('');
+
+    setIsAccountMenuOpen(false);
+    setView('contractor');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }}
+  className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
+>
+  + New Order
+</button>
     </nav>
 
     <div className="account-menu">
