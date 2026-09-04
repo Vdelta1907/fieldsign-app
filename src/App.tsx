@@ -366,6 +366,20 @@ const signatureSubmissionIdRef =
     setProfile(newProfile);
     localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(newProfile));
   };
+useEffect(() => {
+  if (
+    !profile.stripeChargesEnabled &&
+    profile.requirePaymentUpfront
+  ) {
+    saveProfile({
+      ...profile,
+      requirePaymentUpfront: false
+    });
+  }
+}, [
+  profile.stripeChargesEnabled,
+  profile.requirePaymentUpfront
+]);  
 
   const loadContractorProfile = async () => {
     if (!session) return;
@@ -2437,18 +2451,68 @@ const handleClientResponse = async (
               >
                 {isConnectingStripe ? 'Opening Stripe…' : profile.stripeChargesEnabled ? 'Review Stripe connection' : 'Connect with Stripe'}
               </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                <input 
-                  type="checkbox" 
-                  id="requirePayment"
-                  checked={profile.requirePaymentUpfront}
-                  onChange={(e) => saveProfile({ ...profile, requirePaymentUpfront: e.target.checked })}
-                  style={{ width: '16px', height: '16px', accentColor: '#f59e0b' }}
-                />
-                <label htmlFor="requirePayment" style={{ fontSize: '12px', color: '#cbd5e1', cursor: 'pointer' }}>
-                  Offer secure payment after client authorization
-                </label>
-              </div>
+              <div
+  style={{
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    marginTop: '10px'
+  }}
+>
+  <input
+    type="checkbox"
+    id="requirePayment"
+    checked={profile.requirePaymentUpfront}
+    disabled={!profile.stripeChargesEnabled}
+    onChange={(event) =>
+      saveProfile({
+        ...profile,
+        requirePaymentUpfront: event.target.checked
+      })
+    }
+    style={{
+      width: '16px',
+      height: '16px',
+      marginTop: '2px',
+      accentColor: '#f59e0b',
+      cursor: profile.stripeChargesEnabled
+        ? 'pointer'
+        : 'not-allowed',
+      opacity: profile.stripeChargesEnabled ? 1 : 0.5
+    }}
+  />
+
+  <div>
+    <label
+      htmlFor="requirePayment"
+      style={{
+        display: 'block',
+        fontSize: '12px',
+        color: profile.stripeChargesEnabled
+          ? '#cbd5e1'
+          : '#64748b',
+        cursor: profile.stripeChargesEnabled
+          ? 'pointer'
+          : 'not-allowed'
+      }}
+    >
+      Offer secure payment after client authorization
+    </label>
+
+    {!profile.stripeChargesEnabled && (
+      <p
+        style={{
+          marginTop: '4px',
+          color: '#64748b',
+          fontSize: '10px',
+          lineHeight: 1.4
+        }}
+      >
+        Connect a functional Stripe account to enable this option.
+      </p>
+    )}
+  </div>
+</div>
             </div>
 
             <div className="form-group" style={{ textAlign: 'center', background: '#0b1120', padding: '16px', borderRadius: '12px', border: '1px solid #1e293b' }}>
