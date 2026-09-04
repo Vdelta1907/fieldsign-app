@@ -202,6 +202,8 @@ const [revisionHistoryErrors, setRevisionHistoryErrors] = useState<
   Record<string, string>
 >({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmittingSignature, setIsSubmittingSignature] =
+  useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
@@ -234,6 +236,11 @@ const clientResponseSubmissionInProgress =
   useRef(false);
 
 const clientResponseSubmissionIdRef =
+  useRef<string | null>(null);
+  const signatureSubmissionInProgress =
+  useRef(false);
+
+const signatureSubmissionIdRef =
   useRef<string | null>(null);
   const isDrawing = useRef(false);
   const handleTabToggle = (
@@ -1557,88 +1564,149 @@ newOrderSubmissionIdRef.current = null;
     paymentWindow.location.href = data.url;
   };
 
-  const finalizeSignatureAndPay = async (openStripe: boolean = false) => {
-    if (!acceptedTerms) {
-      alert("Please accept the authorization terms before signing.");
-      return;
-    }
+const finalizeSignatureAndPay = async (
+  openStripe: boolean = false
+) => {
+  if (
+    signatureSubmissionInProgress.current ||
+    isSubmittingSignature
+  ) {
+    return;
+  }
 
-    if (!signerName.trim()) {
-      alert("Please enter the signer’s full name.");
-      return;
-    }
+  if (!acceptedTerms) {
+    alert(
+      'Please accept the authorization terms before signing.'
+    );
+    return;
+  }
 
-    if (!hasSignature) {
-      alert("Please draw your signature before authorizing this document.");
-      return;
-    }
+  if (!signerName.trim()) {
+    alert('Please enter the signer’s full name.');
+    return;
+  }
 
-    const canvas = canvasRef.current;
-    if (!canvas || !currentSigningToken) return;
+  if (!hasSignature) {
+    alert(
+      'Please draw your signature before authorizing this document.'
+    );
+    return;
+  }
 
-    const signature = canvas.toDataURL();
-    const paymentWindow = openStripe ? window.open('about:blank', '_blank') : null;
+  const canvas = canvasRef.current;
+  const signingToken = currentSigningToken;
 
-    try {
-      const { data, error } = await supabase.rpc('sign_order', {
-        p_token: currentSigningToken,
+  if (!canvas || !signingToken) {
+    alert(
+      'This signing link is no longer available. Please contact your contractor.'
+    );
+    return;
+  }
+
+  // Open Stripe synchronously so the browser recognizes
+  // that the window was requested by the client's tap.
+  const paymentWindow = openStripe
+    ? window.open('about:blank', '_blank')
+    : null;
+
+  if (openStripe && !paymentWindow) {
+    alert(
+      'Please allow pop-ups before continuing to secure payment.'
+    );
+    return;
+  }
+
+  const signature = canvas.toDataURL();
+
+  const submissionId =
+    signatureSubmissionIdRef.current ||
+    window.crypto.randomUUID();
+
+  signatureSubmissionIdRef.current = submissionId;
+  signatureSubmissionInProgress.current = true;
+  setIsSubmittingSignature(true);
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'sign_order_v2',
+      {
+        p_token: signingToken,
         p_signer_name: signerName.trim(),
         p_signature_data: signature,
         p_consent_text: CONSENT_TEXT,
         p_user_agent: navigator.userAgent,
         p_payment_requested: openStripe,
-      });
-      if (error) throw error;
-
-      const result = data?.[0];
-      setSignatureData(signature);
-      setSignTimestamp(result?.signed_at_utc || new Date().toISOString());
-      setPaymentStatus(result?.payment_status || (openStripe ? 'pending' : 'unpaid'));
-      setView('signed_receipt');
-    } catch (err: unknown) {
-  paymentWindow?.close();
-  console.error('Error recording signature:', err);
-
-  const errorMessage =
-    typeof err === 'object' &&
-    err !== null &&
-    'message' in err &&
-    typeof err.message === 'string'
-      ? err.message
-      : '';
-
-  const linkIsClosed = errorMessage
-    .toLowerCase()
-    .includes('this signing link is invalid');
-
-  if (linkIsClosed) {
-    setAcceptedTerms(false);
-    setHasSignature(false);
-    setCurrentSigningToken(null);
-
-    setClientLoadError(
-      'This link is no longer valid for signing. Please contact your contractor.'
+        p_submission_id: submissionId
+      }
     );
-  } else {
-    alert(
-      'We could not confirm whether your signature was saved. Please check your connection and reopen this link to check the order’s status.'
+
+    if (error) throw error;
+
+    const result = data?.[0];
+
+    if (!result?.signed_at_utc) {
+      throw new Error(
+        'The signed authorization could not be confirmed.'
+      );
+    }
+
+    signatureSubmissionIdRef.current = null;
+    setSignatureData(signature);
+    setSignTimestamp(result.signed_at_utc);
+    setPaymentStatus(
+      result.payment_status ||
+      (openStripe ? 'pending' : 'unpaid')
     );
+    setView('signed_receipt');
+  } catch (error: unknown) {
+    paymentWindow?.close();
+    console.error('Error recording signature:', error);
+
+    const message =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof error.message === 'string'
+        ? error.message
+        : '';
+
+    const linkClosed =
+      message.toLowerCase().includes(
+        'this signing link is invalid'
+      );
+
+    if (linkClosed) {
+      // Another simultaneous action may have completed first.
+      await loadOrderFromDb(signingToken);
+    } else {
+      alert(
+        'We could not confirm whether your signature was saved. ' +
+        'Please check your connection and try again.'
+      );
+    }
+
+    return;
+  } finally {
+    signatureSubmissionInProgress.current = false;
+    setIsSubmittingSignature(false);
   }
 
-  return;
-}
-    if (openStripe) {
-      try {
-        await openSecureCheckout(paymentWindow);
-      } catch (error) {
-        console.error('Checkout failed:', error);
-        alert('Your authorization was saved, but secure payment could not open. Use Continue to Payment to try again.');
-      }
-    } else {
-      paymentWindow?.close();
-    }
-  };
+  if (openStripe) {
+    try {
+      await openSecureCheckout(paymentWindow);
+    } catch (error) {
+      console.error('Checkout failed:', error);
 
+      alert(
+        'Your authorization was saved, but secure payment could not open. ' +
+        'Use Continue to Payment to try again.'
+      );
+    }
+  } else {
+    paymentWindow?.close();
+  }
+};
+  
   const handleDownloadPdf = async (targetDoc?: { 
     company?: string; 
     logo?: string;
@@ -3915,13 +3983,15 @@ setClientResponseNote('');
             {orderRequirePaymentUpfront &&
               orderPaymentsEnabled && (
                 <button
-                  type="button"
-                  onClick={() => finalizeSignatureAndPay(true)}
-                  disabled={
-                    !acceptedTerms ||
-                    !hasSignature ||
-                    !signerName.trim()
-                  }
+  type="button"
+  onClick={() => finalizeSignatureAndPay(true)}
+  disabled={
+    isSubmittingSignature ||
+    !acceptedTerms ||
+    !hasSignature ||
+    !signerName.trim()
+  }
+  aria-busy={isSubmittingSignature}
                   style={{
                     width: '100%',
                     background: '#0f172a',
@@ -3955,14 +4025,16 @@ setClientResponseNote('');
               )}
 
             <button
-              type="button"
-              onClick={() => finalizeSignatureAndPay(false)}
-              disabled={
-                !acceptedTerms ||
-                !hasSignature ||
-                !signerName.trim()
-              }
-              className="btn-approve"
+  type="button"
+  onClick={() => finalizeSignatureAndPay(false)}
+  disabled={
+    isSubmittingSignature ||
+    !acceptedTerms ||
+    !hasSignature ||
+    !signerName.trim()
+  }
+  aria-busy={isSubmittingSignature}
+  className="btn-approve"
               style={{
                 opacity:
                   acceptedTerms &&
