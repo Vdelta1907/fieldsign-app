@@ -137,7 +137,7 @@ export default function App() {
   const [clientLoadError, setClientLoadError] = useState('');
   const [filterTab, setFilterTab] = useState<
   'active' | 'draft' | 'pending' | 'signed' | null
->('active');
+>(null);
   const [profile, setProfile] = useState<ContractorProfile>(() => {
     const saved = localStorage.getItem('fieldsign_contractor_profile');
     if (saved) {
@@ -1013,7 +1013,7 @@ const exitOrderEditor = () => {
   setClientLoadError('');
 
   // Show All Orders so the retained draft is easy to find.
-  setFilterTab('active');
+  setFilterTab(null);
   setIsAccountMenuOpen(false);
   setView('dashboard');
 
@@ -1284,7 +1284,7 @@ const exitOrderEditor = () => {
     setEditingOrderId(null);
     setCurrentOrderId(null);
     setCurrentSigningToken(null);
-    setFilterTab('active');
+    setFilterTab(null);
     setIsAccountMenuOpen(false);
     setView('dashboard');
 
@@ -2114,7 +2114,7 @@ const handleClientResponse = async (
   onClick={() => {
     if (!prepareContractorNavigation()) return;
 
-    setFilterTab('active');
+    setFilterTab(null);
     setView('dashboard');
     setIsAccountMenuOpen(false);
     void fetchDashboardOrders();
