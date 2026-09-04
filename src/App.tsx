@@ -907,6 +907,173 @@ const exitOrderEditor = () => {
     setRevisionOpeningId(null);
   }
 };
+  const saveOrderDraft = async () => {
+  if (
+    !session ||
+    isClientMode ||
+    orderSubmissionInProgress.current ||
+    isSaving ||
+    revisionOpeningId !== null
+  ) {
+    return;
+  }
+
+  const hasContent = Boolean(
+    clientName.trim() ||
+    clientPhone.trim() ||
+    projectTitle.trim() ||
+    description.trim() ||
+    cost.trim() ||
+    photoData1 ||
+    photoData2
+  );
+
+  if (!hasContent) {
+    alert('Enter at least one detail before saving a draft.');
+    return;
+  }
+
+  const draftCost = cost.trim() === '' ? 0 : Number(cost);
+
+  if (!Number.isFinite(draftCost) || draftCost < 0) {
+    alert(
+      'Enter a valid amount of $0 or more, or leave the amount blank.'
+    );
+    return;
+  }
+
+  orderSubmissionInProgress.current = true;
+  setIsSaving(true);
+
+  try {
+    const draftPayload = {
+      order_type: orderType,
+      contractor_company:
+        profile.companyName.trim() || 'FieldSign Contractor',
+      contractor_logo: profile.logoDataUrl || null,
+      contractor_license: profile.licenseNumber || null,
+      contractor_phone: profile.phone || null,
+      contractor_email: profile.email || null,
+      custom_terms: profile.customTerms || DEFAULT_TERMS,
+      project_title: projectTitle.trim(),
+      client_name: clientName.trim(),
+      client_phone: clientPhone.trim(),
+      description: description.trim(),
+      cost: draftCost,
+      photo_data: photoData1 || null,
+      photo_data_2: photoData2 || null,
+      require_payment_upfront: profile.requirePaymentUpfront,
+      updated_at: new Date().toISOString()
+    };
+
+    let savedDraft: OrderRecord;
+
+    if (editingOrderId) {
+      if (!currentSigningToken) {
+        throw new Error(
+          'Please reopen this draft from the dashboard before saving.'
+        );
+      }
+
+      // Update only the draft version currently being edited.
+      // Never turn a sent or signed order back into a draft.
+      const { data, error } = await supabase
+        .from('orders')
+        .update(draftPayload)
+        .eq('id', editingOrderId)
+        .eq('owner_id', session.user.id)
+        .eq('status', 'draft')
+        .eq('signing_token', currentSigningToken)
+        .is('archived_at', null)
+        .select()
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        throw new Error(
+          'This draft is no longer available in the version you opened. ' +
+          'Your edits remain in the form. Copy any changes you need ' +
+          'before reopening the order from the dashboard.'
+        );
+      }
+
+      savedDraft = data as OrderRecord;
+    } else {
+      const { data, error } = await supabase
+        .from('orders')
+        .insert({
+          ...draftPayload,
+          owner_id: session.user.id,
+          status: 'draft',
+          payment_status: 'unpaid',
+
+          // No active client link until this draft is sent for review.
+          signing_expires_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (!data) {
+        throw new Error('The draft could not be confirmed as saved.');
+      }
+
+      savedDraft = data as OrderRecord;
+    }
+
+    // Stop dictation when leaving the editor.
+    const recognition = speechRecognitionRef.current;
+    speechRecognitionRef.current = null;
+
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onend = null;
+
+      try {
+        recognition.stop();
+      } catch {}
+    }
+
+    setActiveListeningField(null);
+
+    // Show the saved draft immediately.
+    setOrders(previous => [
+      savedDraft,
+      ...previous.filter(order => order.id !== savedDraft.id)
+    ]);
+
+    setEditingOrderId(null);
+    setCurrentOrderId(null);
+    setCurrentSigningToken(null);
+    setFilterTab('active');
+    setIsAccountMenuOpen(false);
+    setView('dashboard');
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (error: unknown) {
+    console.error('Draft save failed:', error);
+
+    const message =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof error.message === 'string'
+        ? error.message
+        : 'We could not confirm that your draft was saved.';
+
+    alert(
+      message +
+      '\n\nYour entered details remain in the form. ' +
+      'If your connection was interrupted, check the dashboard ' +
+      'before retrying to avoid creating a duplicate draft.'
+    );
+  } finally {
+    orderSubmissionInProgress.current = false;
+    setIsSaving(false);
+  }
+};
   const createOrder = async () => {
   const parsedCost = Number(cost);
 
@@ -2037,7 +2204,15 @@ const handleClientResponse = async (
                         <span style={{ fontSize: '10px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase' }}>
                           {o.order_type || 'Change Order'}
                         </span>
-                        <h4 style={{ fontSize: '15px', fontWeight: 800, marginTop: '1px' }}>{o.project_title}</h4>
+                        <h4
+  style={{
+    fontSize: '15px',
+    fontWeight: 800,
+    marginTop: '1px'
+  }}
+>
+  {o.project_title || 'Untitled order'}
+</h4>
                         <p style={{ fontSize: '12px', color: '#94a3b8' }}>Client: <strong>{o.client_name}</strong> ({o.client_phone})</p>
                       </div>
                       <div style={{ textAlign: 'right' }}>
@@ -2492,6 +2667,16 @@ const handleClientResponse = async (
     </p>
   )}
 
+<button
+  type="button"
+  onClick={() => void saveOrderDraft()}
+  disabled={isSaving || revisionOpeningId !== null}
+  className="btn-secondary"
+  aria-busy={isSaving}
+  style={{ marginTop: 0, marginBottom: '10px' }}
+>
+  {isSaving ? 'Saving order…' : '💾 Save Draft & Exit'}
+</button>
   <button
     type="button"
     onClick={() => void createOrder()}
