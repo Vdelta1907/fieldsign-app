@@ -96,7 +96,26 @@ interface ContractorProfile {
 const DEFAULT_TERMS = "The undersigned authorizes the contractor to perform the modifications or services described above. Labor, equipment, and materials will be provided in accordance with the stated scope and payment terms. By checking the consent box and signing, the signer confirms their intent to authorize this electronic record and agrees to receive and retain it electronically.";
 const CONSENT_TEXT = 'I agree to conduct this transaction electronically, confirm that I reviewed the scope and amount, and intend my electronic signature to authorize this record.';
 
+const formatTimestamp = (value?: string | null): string => {
+  if (!value) return 'Not recorded';
 
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Date unavailable';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  }).format(date);
+};
 export default function App() {
   const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
   const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
@@ -1272,7 +1291,11 @@ const openOrderForRevision = async (order: OrderRecord) => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(grayText[0], grayText[1], grayText[2]);
-    doc.text(`Timestamp: ${dTimestamp || new Date().toLocaleString()}`, 350, sigY + 38);
+    doc.text(
+  `Timestamp: ${formatTimestamp(dTimestamp)}`,
+  350,
+  sigY + 38
+);
     doc.text(`Status: ${dPaid ? 'Paid & Archived' : 'Authorized Document'}`, 350, sigY + 50);
 
     const pdfBlob = doc.output('blob');
@@ -3006,7 +3029,9 @@ const handleClientResponse = async (
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Timestamp:</span>
-                <span style={{ fontFamily: 'monospace' }}>{signTimestamp}</span>
+                <span>
+  {formatTimestamp(signTimestamp)}
+</span>
               </div>
               {signatureData && (
                 <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #1e293b' }}>
