@@ -127,8 +127,9 @@ export default function App() {
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
-  const [filterTab, setFilterTab] = useState<'active' | 'pending' | 'signed' | null>('active');
-
+  const [filterTab, setFilterTab] = useState<
+  'active' | 'draft' | 'pending' | 'signed' | null
+>('active');
   const [profile, setProfile] = useState<ContractorProfile>(() => {
     const saved = localStorage.getItem('fieldsign_contractor_profile');
     if (saved) {
@@ -202,10 +203,11 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
   const profileSaveInProgress = useRef(false);
   const orderSubmissionInProgress = useRef(false);
   const isDrawing = useRef(false);
-  const handleTabToggle = (tab: 'active' | 'pending' | 'signed') => {
-    setFilterTab(prev => prev === tab ? null : tab);
-  };
-
+  const handleTabToggle = (
+  tab: 'active' | 'draft' | 'pending' | 'signed'
+) => {
+  setFilterTab(previous => previous === tab ? null : tab);
+};
   // Speech Recognition (Dictation) Engine
   const startDictation = (
   field: string,
@@ -1784,12 +1786,19 @@ useEffect(() => {
   clientResponseSubmitted,
   isSubmittingClientResponse
 ]);
-  const displayedOrders = filterTab === null ? [] : orders.filter(o => {
-    if (filterTab === 'pending') return o.status === 'pending';
-    if (filterTab === 'signed') return o.status === 'signed';
-    return true;
-  });
+  const displayedOrders = filterTab === null
+  ? []
+  : orders.filter(order => {
+      if (filterTab === 'draft') return order.status === 'draft';
+      if (filterTab === 'pending') return order.status === 'pending';
+      if (filterTab === 'signed') return order.status === 'signed';
+      return true;
+    });
 
+const draftCount = orders.filter(
+  order => order.status === 'draft'
+).length;
+  
   const totalApprovedRevenue = orders
     .filter(o => o.status === 'signed')
     .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
@@ -2216,68 +2225,66 @@ const handleClientResponse = async (
   </div>
 )}
             {/* Collapsible / Accordion Status Buttons */}
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-              <button
-                type="button"
-                onClick={() => handleTabToggle('active')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'active' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'active' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                All Orders ({orders.length}) {filterTab === 'active' ? '▲' : '▼'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTabToggle('pending')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'pending' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'pending' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                ⏳ Pending ({pendingCount}) {filterTab === 'pending' ? '▲' : '▼'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTabToggle('signed')}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: filterTab === 'signed' ? '#f59e0b' : '#1e293b',
-                  color: filterTab === 'signed' ? '#0f172a' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                ✓ Signed ({signedCount}) {filterTab === 'signed' ? '▲' : '▼'}
-              </button>
-            </div>
-
+<div
+  style={{
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+    marginBottom: '14px'
+  }}
+>
+  {(
+    [
+      {
+        key: 'active',
+        label: 'All Orders',
+        count: orders.length
+      },
+      {
+        key: 'draft',
+        label: '✎ Drafts',
+        count: draftCount
+      },
+      {
+        key: 'pending',
+        label: '⏳ Pending',
+        count: pendingCount
+      },
+      {
+        key: 'signed',
+        label: '✓ Signed',
+        count: signedCount
+      }
+    ] as const
+  ).map(tab => (
+    <button
+      key={tab.key}
+      type="button"
+      onClick={() => handleTabToggle(tab.key)}
+      aria-expanded={filterTab === tab.key}
+      style={{
+        padding: '6px 12px',
+        borderRadius: '20px',
+        border: 'none',
+        fontSize: '11px',
+        fontWeight: 700,
+        cursor: 'pointer',
+        background:
+          filterTab === tab.key ? '#f59e0b' : '#1e293b',
+        color:
+          filterTab === tab.key ? '#0f172a' : '#94a3b8',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {tab.label} ({tab.count})
+      {' '}
+      {filterTab === tab.key ? '▲' : '▼'}
+    </button>
+  ))}
+</div>
             {filterTab === null && (
               <div style={{ textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
                 Tap any status category above to expand orders ▼
