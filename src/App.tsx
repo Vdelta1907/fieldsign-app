@@ -691,84 +691,165 @@ useEffect(() => {
   };
 }, [dashboardUserId, isClientMode, view, fetchDashboardOrders]);
   
-  const loadOrderFromDb = async (signingToken: string) => {
-    setClientLoadError('');
-    try {
-      const { data, error } = await supabase.rpc('get_order_for_signing', { p_token: signingToken });
-      if (error) throw error;
-      if (data && data.length > 0) {
-        const o = data[0] as OrderRecord;
-        // Only pending orders can display the authorization form.
-// Signed orders can still display their locked receipt.
-if (o.status !== 'pending' && o.status !== 'signed') {
-  setCurrentOrderId(null);
-  setEditingOrderId(null);
-setCurrentSigningToken(null);
-  setCurrentSigningToken(null);
-  setAcceptedTerms(false);
-  setHasSignature(false);
-  setSignatureData(null);
-  setSignerName('');
-  setClientResponseMode(null);
+const loadOrderFromDb = async (signingToken: string) => {
+  setClientLoadError('');
 
-  if (o.status === 'changes_requested') {
-    setClientLoadError(
-      'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
-    );
-  } else if (o.status === 'declined') {
-    setClientLoadError(
-      'This order has been declined, and this authorization link is now closed. If the contractor revises the order, they will send you a new link.'
-    );
-  } else {
-    setClientLoadError(
-      'This order is not available for authorization. Please ask the contractor for the latest review link.'
-    );
-  }
+  const closeClientAuthorization = (message: string) => {
+    setCurrentOrderId(null);
+    setEditingOrderId(null);
+    setIsEditingRevision(false);
+    setCurrentSigningToken(null);
+    setAcceptedTerms(false);
+    setHasSignature(false);
+    setSignatureData(null);
+    setSignerName('');
+    setClientResponseMode(null);
+    setClientResponseSubmitted(null);
+    setClientLoadError(message);
+  };
 
-  return;
-}
-        setCurrentOrderId(o.id);
-        setCurrentSigningToken(signingToken);
-        setOrderType(o.order_type === 'New Job Agreement' ? 'New Job Agreement' : 'Change Order');
-        setProjectTitle(o.project_title || '');
-        setClientName(o.client_name || '');
-        setClientPhone(o.client_phone || '');
-        setDescription(o.description || '');
-        setCost(o.cost?.toString() || '0');
-        setPhotoData1(o.photo_data || '');
-        setPhotoData2(o.photo_data_2 || '');
-        setPaymentStatus((o.payment_status as typeof paymentStatus) || 'unpaid');
+  const showCurrentLinkState = async () => {
+    const { data: stateData, error: stateError } =
+      await supabase.rpc('fieldsign_get_link_state', {
+        p_signing_token: signingToken
+      });
 
-        // Map Saved Contractor Profile
-        setOrderContractorName(o.contractor_company || profile.companyName);
-        setOrderContractorLogo(o.contractor_logo || profile.logoDataUrl);
-        setOrderContractorLicense(o.contractor_license || profile.licenseNumber);
-        setOrderContractorPhone(o.contractor_phone || profile.phone);
-        setOrderContractorEmail(o.contractor_email || profile.email);
-        setOrderTerms(o.custom_terms || profile.customTerms || DEFAULT_TERMS);
-        setOrderRequirePaymentUpfront(Boolean(o.require_payment_upfront));
-        setOrderPaymentsEnabled(Boolean(o.payments_enabled));
+    if (stateError) throw stateError;
 
-        if (o.status === 'signed') {
-          setSignatureData(o.signature_data || null);
-          setSignerName(o.signer_name || o.client_name || '');
-          setSignTimestamp(o.signed_at_utc || o.signed_at || '');
-          setView('signed_receipt');
-        } else {
-          setAcceptedTerms(false);
-          setSignerName('');
-          setHasSignature(false);
-          setView('client_review');
-        }
-      } else {
-        setClientLoadError('This signing link is invalid or has expired. Please ask the contractor for a new link.');
-      }
-    } catch (err) {
-      console.error('Error fetching order:', err);
-      setClientLoadError('We could not open this authorization. Please ask the contractor for a new link.');
+    const state =
+      stateData &&
+      typeof stateData === 'object' &&
+      'state' in stateData
+        ? stateData.state
+        : 'invalid';
+
+    if (state === 'changes_requested') {
+      closeClientAuthorization(
+        'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
+      );
+    } else if (state === 'declined') {
+      closeClientAuthorization(
+        'This order has been declined, and this authorization link is now closed. If the contractor revises the order, they will send you a new link.'
+      );
+    } else if (state === 'expired') {
+      closeClientAuthorization(
+        'This authorization link has expired. Please contact your contractor for a new review link.'
+      );
+    } else if (state === 'superseded') {
+      closeClientAuthorization(
+        'This authorization has been replaced by a newer version. Please use the latest link sent by your contractor.'
+      );
+    } else if (state === 'archived') {
+      closeClientAuthorization(
+        'This authorization is no longer available. Please contact your contractor if you need assistance.'
+      );
+    } else if (state === 'not_active') {
+      closeClientAuthorization(
+        'This order is not currently available for client authorization. Please contact your contractor for the latest review link.'
+      );
+    } else {
+      closeClientAuthorization(
+        'This link does not match an available authorization. Please contact your contractor for the correct link.'
+      );
     }
   };
-const prepareContractorNavigation = (): boolean => {
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'get_order_for_signing',
+      {
+        p_token: signingToken
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      await showCurrentLinkState();
+      return;
+    }
+
+    const o = data[0] as OrderRecord;
+
+    // Only pending orders display the authorization form.
+    // Signed orders display their immutable receipt.
+    if (o.status !== 'pending' && o.status !== 'signed') {
+      await showCurrentLinkState();
+      return;
+    }
+
+    setCurrentOrderId(o.id);
+    setCurrentSigningToken(signingToken);
+
+    setOrderType(
+      o.order_type === 'New Job Agreement'
+        ? 'New Job Agreement'
+        : 'Change Order'
+    );
+
+    setProjectTitle(o.project_title || '');
+    setClientName(o.client_name || '');
+    setClientPhone(o.client_phone || '');
+    setDescription(o.description || '');
+    setCost(o.cost?.toString() || '0');
+    setPhotoData1(o.photo_data || '');
+    setPhotoData2(o.photo_data_2 || '');
+
+    setPaymentStatus(
+      (o.payment_status as typeof paymentStatus) || 'unpaid'
+    );
+
+    // Map the contractor information saved with the order.
+    setOrderContractorName(
+      o.contractor_company || profile.companyName
+    );
+    setOrderContractorLogo(
+      o.contractor_logo || profile.logoDataUrl
+    );
+    setOrderContractorLicense(
+      o.contractor_license || profile.licenseNumber
+    );
+    setOrderContractorPhone(
+      o.contractor_phone || profile.phone
+    );
+    setOrderContractorEmail(
+      o.contractor_email || profile.email
+    );
+    setOrderTerms(
+      o.custom_terms ||
+      profile.customTerms ||
+      DEFAULT_TERMS
+    );
+
+    setOrderRequirePaymentUpfront(
+      Boolean(o.require_payment_upfront)
+    );
+    setOrderPaymentsEnabled(Boolean(o.payments_enabled));
+
+    if (o.status === 'signed') {
+      setSignatureData(o.signature_data || null);
+      setSignerName(
+        o.signer_name || o.client_name || ''
+      );
+      setSignTimestamp(
+        o.signed_at_utc || o.signed_at || ''
+      );
+      setView('signed_receipt');
+    } else {
+      setAcceptedTerms(false);
+      setSignerName('');
+      setHasSignature(false);
+      setView('client_review');
+    }
+  } catch (error) {
+    console.error('Error fetching order:', error);
+
+    closeClientAuthorization(
+      'We could not check this authorization right now. Please check your connection and try opening the link again.'
+    );
+  }
+};
+  const prepareContractorNavigation = (): boolean => {
   // Do not leave while an order is being saved or opened.
   if (
     orderSubmissionInProgress.current ||
@@ -1728,8 +1809,8 @@ if (!pdfWindow) {
 window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
   };
 
-  // Monitor an already-open client authorization.
-// Fetch only status, not the order's photos or other contents.
+// Monitor an already-open client authorization.
+// Fetch only the link state, not the order contents or photos.
 useEffect(() => {
   if (
     !isClientMode ||
@@ -1748,6 +1829,7 @@ useEffect(() => {
   let controller: AbortController | null = null;
 
   const closeAuthorization = (message: string) => {
+    setCurrentOrderId(null);
     setAcceptedTerms(false);
     setHasSignature(false);
     setSignatureData(null);
@@ -1768,6 +1850,7 @@ useEffect(() => {
     }
 
     checking = true;
+
     const requestController = new AbortController();
     controller = requestController;
 
@@ -1778,48 +1861,68 @@ useEffect(() => {
 
     try {
       const { data, error } = await supabase
-        .rpc('get_order_for_signing', { p_token: token })
-        .select('status')
+        .rpc('fieldsign_get_link_state', {
+          p_signing_token: token
+        })
         .abortSignal(requestController.signal);
 
       if (stopped) return;
       if (error) throw error;
 
-      if (!Array.isArray(data)) {
-        throw new Error('Unexpected link-status response.');
-      }
+      const state =
+        data &&
+        typeof data === 'object' &&
+        'state' in data
+          ? data.state
+          : 'invalid';
 
-      const status = data[0]?.status;
-
-      if (status === 'pending') {
-        // Leave the form and any signature in progress untouched.
+      if (state === 'active') {
+        // Preserve any signature currently being drawn.
         return;
       }
 
-      if (status === 'signed') {
-        // It may have been signed in another tab or on another device.
+      if (state === 'signed') {
+        // Signed elsewhere: display the immutable receipt.
         await loadOrderFromDb(token);
         return;
       }
 
-      if (status === 'changes_requested') {
+      if (state === 'changes_requested') {
         closeAuthorization(
           'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
         );
-      } else if (status === 'declined') {
+      } else if (state === 'declined') {
         closeAuthorization(
-          'This order has been declined, and this authorization link is now closed. Please contact your contractor if you need further assistance.'
+          'This order has been declined, and this authorization link is now closed. If the contractor revises the order, they will send you a new link.'
+        );
+      } else if (state === 'expired') {
+        closeAuthorization(
+          'This authorization link has expired. Please contact your contractor for a new review link.'
+        );
+      } else if (state === 'superseded') {
+        closeAuthorization(
+          'This authorization has been replaced by a newer version. Please use the latest link sent by your contractor.'
+        );
+      } else if (state === 'archived') {
+        closeAuthorization(
+          'This authorization is no longer available. Please contact your contractor if you need assistance.'
+        );
+      } else if (state === 'not_active') {
+        closeAuthorization(
+          'This order is not currently available for client authorization. Please contact your contractor for the latest review link.'
         );
       } else {
-        // Includes archived, expired, replaced, or draft links.
         closeAuthorization(
-          'This link is no longer valid for signing. Please contact your contractor.'
+          'This link does not match an available authorization. Please contact your contractor for the correct link.'
         );
       }
     } catch (error) {
       if (!stopped) {
-        // A connection failure does not prove the link is invalid.
-        console.warn('Unable to check authorization status:', error);
+        // A connection failure does not prove that the link closed.
+        console.warn(
+          'Unable to check authorization status:',
+          error
+        );
       }
     } finally {
       window.clearTimeout(timeoutId);
@@ -1848,7 +1951,10 @@ useEffect(() => {
     controller?.abort();
     window.clearInterval(timerId);
 
-    document.removeEventListener('visibilitychange', onReturn);
+    document.removeEventListener(
+      'visibilitychange',
+      onReturn
+    );
     window.removeEventListener('focus', onReturn);
     window.removeEventListener('pageshow', onReturn);
     window.removeEventListener('online', onReturn);
