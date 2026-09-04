@@ -224,6 +224,8 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
   const profileSaveInProgress = useRef(false);
   const orderSubmissionInProgress = useRef(false);
   const newOrderSubmissionIdRef = useRef<string | null>(null);
+  const revisionPublishSubmissionIdRef =
+  useRef<string | null>(null);
   const isDrawing = useRef(false);
   const handleTabToggle = (
   tab: 'active' | 'draft' | 'pending' | 'signed'
@@ -1109,7 +1111,7 @@ const exitOrderEditor = () => {
 );
     setCurrentOrderId(order.id);
     setCurrentSigningToken(activeSigningToken);
-
+    revisionPublishSubmissionIdRef.current = null;
     setOrderType(
       order.order_type as
         | 'Change Order'
@@ -1332,70 +1334,66 @@ const exitOrderEditor = () => {
   setIsSaving(true);
 
   try {
-    const sharedPayload: Record<string, any> = {
-      order_type: orderType,
-      contractor_company: profile.companyName,
-      contractor_logo: profile.logoDataUrl || null,
-      contractor_license: profile.licenseNumber || null,
-      contractor_phone: profile.phone || null,
-      contractor_email: profile.email || null,
-      custom_terms:
-        profile.customTerms || DEFAULT_TERMS,
-      project_title: projectTitle.trim(),
-      client_name: clientName.trim(),
-      client_phone: clientPhone.trim(),
-      description: description.trim(),
-      cost: parsedCost,
-      photo_data: photoData1 || null,
-      photo_data_2: photoData2 || null,
-      require_payment_upfront:
-        profile.requirePaymentUpfront
-    };
+    
 
     let savedOrder: OrderRecord;
 
     if (editingOrderId) {
-      // Keep the revised record as a draft while its contents update.
-      const { data: updatedOrder, error: updateError } =
-        await supabase
-          .from('orders')
-          .update({
-            ...sharedPayload,
-            status: 'draft'
-          })
-          .eq('id', editingOrderId)
-          .select()
-          .single();
+  if (!currentSigningToken) {
+    throw new Error(
+      'Please reopen this draft from the dashboard before publishing it.'
+    );
+  }
 
-      if (updateError) throw updateError;
-      if (!updatedOrder) {
-        throw new Error('The revised order could not be saved.');
-      }
+  const publishSubmissionId =
+    revisionPublishSubmissionIdRef.current ||
+    window.crypto.randomUUID();
 
-      // Publish the revision and activate its new signing link.
-      const { data: sendResult, error: sendError } =
-        await supabase.rpc(
-          'fieldsign_send_for_review',
-          {
-            p_order_id: editingOrderId
-          }
-        );
+  revisionPublishSubmissionIdRef.current =
+    publishSubmissionId;
 
-      if (sendError) throw sendError;
+  const { data: publishedOrder, error: publishError } =
+    await supabase.rpc('fieldsign_publish_revision', {
+      p_order_id: editingOrderId,
+      p_expected_signing_token: currentSigningToken,
+      p_publish_submission_id: publishSubmissionId,
+      p_order_type: orderType,
+      p_contractor_company:
+        profile.companyName.trim() || 'FieldSign Contractor',
+      p_contractor_logo: profile.logoDataUrl || null,
+      p_contractor_license:
+        profile.licenseNumber || null,
+      p_contractor_phone: profile.phone || null,
+      p_contractor_email: profile.email || null,
+      p_custom_terms:
+        profile.customTerms || DEFAULT_TERMS,
+      p_project_title: projectTitle.trim(),
+      p_client_name: clientName.trim(),
+      p_client_phone: clientPhone.trim(),
+      p_description: description.trim(),
+      p_cost: parsedCost,
+      p_photo_data: photoData1 || null,
+      p_photo_data_2: photoData2 || null,
+      p_require_payment_upfront:
+        profile.requirePaymentUpfront
+    });
 
-      const reviewResult = sendResult as {
-        signing_token?: string;
-      } | null;
+  if (publishError) throw publishError;
 
-      savedOrder = {
-        ...(updatedOrder as OrderRecord),
-        status: 'pending',
-        signing_token:
-          reviewResult?.signing_token ||
-          (updatedOrder as OrderRecord).signing_token
-      };
-    } else {
-  // Keep the same identifier if an uncertain network response
+  if (
+    !publishedOrder ||
+    typeof publishedOrder !== 'object' ||
+    !('id' in publishedOrder)
+  ) {
+    throw new Error(
+      'The published revision could not be confirmed.'
+    );
+  }
+
+  savedOrder =
+    publishedOrder as unknown as OrderRecord;
+} else {
+      // Keep the same identifier if an uncertain network response
   // causes the contractor to retry this logical submission.
   const submissionId =
     newOrderSubmissionIdRef.current ||
@@ -1447,11 +1445,17 @@ const exitOrderEditor = () => {
     );
 
     setEditingOrderId(null);
-    newOrderSubmissionIdRef.current = null;
+setIsEditingRevision(false);
+newOrderSubmissionIdRef.current = null;
+    revisionPublishSubmissionIdRef.current = null;
+    revisionPublishSubmissionIdRef.current = null;
     await fetchDashboardOrders();
     setView('dashboard');
 
-    if (savedOrder.signing_token) {
+    if (
+  savedOrder.status === 'pending' &&
+  savedOrder.signing_token
+) {
       triggerNativeSms(
         savedOrder.client_phone,
         savedOrder.client_name,
