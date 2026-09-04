@@ -223,6 +223,7 @@ const [clientResponseSubmitted, setClientResponseSubmitted] = useState<
   const speechRecognitionRef = useRef<any>(null);
   const profileSaveInProgress = useRef(false);
   const orderSubmissionInProgress = useRef(false);
+  const newOrderSubmissionIdRef = useRef<string | null>(null);
   const isDrawing = useRef(false);
   const handleTabToggle = (
   tab: 'active' | 'draft' | 'pending' | 'signed'
@@ -1394,32 +1395,59 @@ const exitOrderEditor = () => {
           (updatedOrder as OrderRecord).signing_token
       };
     } else {
-      const { data: createdOrder, error: insertError } =
-        await supabase
-          .from('orders')
-          .insert({
-            ...sharedPayload,
-            status: 'pending',
-            payment_status: 'unpaid'
-          })
-          .select()
-          .single();
+  // Keep the same identifier if an uncertain network response
+  // causes the contractor to retry this logical submission.
+  const submissionId =
+    newOrderSubmissionIdRef.current ||
+    window.crypto.randomUUID();
 
-      if (insertError) throw insertError;
-      if (!createdOrder) {
-        throw new Error('The order could not be created.');
-      }
+  newOrderSubmissionIdRef.current = submissionId;
 
-      savedOrder = createdOrder as OrderRecord;
-    }
+  const { data: createdOrder, error: insertError } =
+    await supabase.rpc('fieldsign_create_order', {
+      p_client_submission_id: submissionId,
+      p_order_type: orderType,
+      p_contractor_company:
+        profile.companyName.trim() || 'FieldSign Contractor',
+      p_contractor_logo: profile.logoDataUrl || null,
+      p_contractor_license:
+        profile.licenseNumber || null,
+      p_contractor_phone: profile.phone || null,
+      p_contractor_email: profile.email || null,
+      p_custom_terms:
+        profile.customTerms || DEFAULT_TERMS,
+      p_project_title: projectTitle.trim(),
+      p_client_name: clientName.trim(),
+      p_client_phone: clientPhone.trim(),
+      p_description: description.trim(),
+      p_cost: parsedCost,
+      p_photo_data: photoData1 || null,
+      p_photo_data_2: photoData2 || null,
+      p_require_payment_upfront:
+        profile.requirePaymentUpfront
+    });
 
+  if (insertError) throw insertError;
+
+  if (
+    !createdOrder ||
+    typeof createdOrder !== 'object' ||
+    !('id' in createdOrder)
+  ) {
+    throw new Error(
+      'The order could not be confirmed as saved.'
+    );
+  }
+
+  savedOrder = createdOrder as unknown as OrderRecord;
+}
     setCurrentOrderId(savedOrder.id);
     setCurrentSigningToken(
       savedOrder.signing_token || null
     );
 
     setEditingOrderId(null);
-
+    newOrderSubmissionIdRef.current = null;
     await fetchDashboardOrders();
     setView('dashboard');
 
@@ -2156,7 +2184,7 @@ const handleClientResponse = async (
     setIsEditingRevision(false);
     setCurrentOrderId(null);
     setCurrentSigningToken(null);
-
+    newOrderSubmissionIdRef.current = null;
     setOrderType('Change Order');
     setClientName('');
     setClientPhone('');
