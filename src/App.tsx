@@ -766,19 +766,20 @@ const exitOrderEditor = () => {
   );
 
   if (editingOrderId) {
-    const confirmed = window.confirm(
-  (isEditingRevision
-    ? 'Exit this revision?\n\n'
-    : 'Exit this draft?\n\n') +
-  'Any unsaved edits will be discarded. The last saved draft ' +
-  'will remain on your dashboard under All Orders, where you ' +
-  'can choose Continue Editing Draft.' +
-  (isEditingRevision
-    ? '\n\nThe previous client link will remain closed.'
-    : '')
-);
-    if (!confirmed) return;
-  } else if (hasFormContent) {
+  const confirmed = window.confirm(
+    (isEditingRevision
+      ? 'Leave this revision and start a new order?\n\n'
+      : 'Leave this draft and start a new order?\n\n') +
+    'Any unsaved edits will be discarded. The last saved draft ' +
+    'will remain on your dashboard so you can continue editing later.' +
+    (isEditingRevision
+      ? '\n\nThe previous client link will remain closed.'
+      : '')
+  );
+
+  if (!confirmed) return;
+}
+} else if (hasFormContent) {
     const confirmed = window.confirm(
       'Cancel this new order?\n\n' +
       'The information entered here has not been saved and will be discarded.'
@@ -804,6 +805,7 @@ const exitOrderEditor = () => {
 
   // Remove the connection to the order being edited.
   setEditingOrderId(null);
+  setIsEditingRevision(false);
   setCurrentOrderId(null);
   setCurrentSigningToken(null);
 
