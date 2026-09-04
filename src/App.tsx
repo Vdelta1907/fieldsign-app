@@ -80,6 +80,14 @@ last_sent_at?: string;
   created_at?: string;
 }
 
+interface RevisionHistoryRecord {
+  revision_number: number;
+  prior_cost: number | string | null;
+  prior_description: string | null;
+  revision_reason: string | null;
+  revised_at: string;
+}
+
 interface ContractorProfile {
   companyName: string;
   licenseNumber: string;
@@ -180,6 +188,19 @@ export default function App() {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isEditingRevision, setIsEditingRevision] = useState(false);
   const [revisionOpeningId, setRevisionOpeningId] = useState<string | null>(null);
+  const [expandedHistoryOrderId, setExpandedHistoryOrderId] =
+  useState<string | null>(null);
+
+const [revisionHistory, setRevisionHistory] = useState<
+  Record<string, RevisionHistoryRecord[]>
+>({});
+
+const [revisionHistoryLoadingId, setRevisionHistoryLoadingId] =
+  useState<string | null>(null);
+
+const [revisionHistoryErrors, setRevisionHistoryErrors] = useState<
+  Record<string, string>
+>({});
   const [isSaving, setIsSaving] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
@@ -913,6 +934,60 @@ const exitOrderEditor = () => {
   setView('dashboard');
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+  const toggleRevisionHistory = async (order: OrderRecord) => {
+  if (expandedHistoryOrderId === order.id) {
+    setExpandedHistoryOrderId(null);
+    return;
+  }
+
+  setExpandedHistoryOrderId(order.id);
+
+  // Do not request history again if it was already loaded.
+  if (
+    Object.prototype.hasOwnProperty.call(
+      revisionHistory,
+      order.id
+    )
+  ) {
+    return;
+  }
+
+  setRevisionHistoryLoadingId(order.id);
+
+  setRevisionHistoryErrors(previous => {
+    const next = { ...previous };
+    delete next[order.id];
+    return next;
+  });
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'fieldsign_get_revision_history',
+      {
+        p_order_id: order.id
+      }
+    );
+
+    if (error) throw error;
+
+    setRevisionHistory(previous => ({
+      ...previous,
+      [order.id]: (data || []) as RevisionHistoryRecord[]
+    }));
+  } catch (error) {
+    console.error('Revision history load failed:', error);
+
+    setRevisionHistoryErrors(previous => ({
+      ...previous,
+      [order.id]:
+        'Revision history could not be loaded. Please try again.'
+    }));
+  } finally {
+    setRevisionHistoryLoadingId(current =>
+      current === order.id ? null : current
+    );
+  }
 };
   const openOrderForRevision = async (order: OrderRecord) => {
   if (revisionOpeningId) return;
@@ -2432,6 +2507,223 @@ const handleClientResponse = async (
       {o.client_response_note ||
         'The client did not include an additional message.'}
     </p>
+  </div>
+)}
+{(o.revision_number ?? 1) > 1 && (
+  <div style={{ marginTop: '10px' }}>
+    <button
+      type="button"
+      onClick={() => void toggleRevisionHistory(o)}
+      disabled={revisionHistoryLoadingId === o.id}
+      aria-expanded={expandedHistoryOrderId === o.id}
+      style={{
+        width: '100%',
+        padding: '9px 10px',
+        borderRadius: '9px',
+        border: '1px solid #334155',
+        background: '#0b1120',
+        color: '#cbd5e1',
+        fontSize: '11px',
+        fontWeight: 800,
+        cursor:
+          revisionHistoryLoadingId === o.id
+            ? 'wait'
+            : 'pointer'
+      }}
+    >
+      {revisionHistoryLoadingId === o.id
+        ? 'Loading Revision History…'
+        : expandedHistoryOrderId === o.id
+          ? '▲ Hide Revision History'
+          : `▼ Revision History · ${
+              o.revision_number ?? 1
+            } versions`}
+    </button>
+
+    {expandedHistoryOrderId === o.id && (
+      <div
+        style={{
+          marginTop: '7px',
+          padding: '10px',
+          borderRadius: '9px',
+          border: '1px solid #334155',
+          background: '#0b1120'
+        }}
+      >
+        <div
+          style={{
+            padding: '9px',
+            borderRadius: '8px',
+            border: '1px solid rgba(16, 185, 129, 0.35)',
+            background: 'rgba(16, 185, 129, 0.08)'
+          }}
+        >
+          <span
+            style={{
+              display: 'block',
+              color: '#34d399',
+              fontSize: '10px',
+              fontWeight: 900,
+              textTransform: 'uppercase'
+            }}
+          >
+            Revision {o.revision_number ?? 1} · Current version
+          </span>
+
+          <p
+            style={{
+              marginTop: '4px',
+              color: '#e2e8f0',
+              fontSize: '12px',
+              lineHeight: 1.45
+            }}
+          >
+            ${Number(o.cost || 0).toLocaleString()} ·{' '}
+            {ORDER_STATUS_META[o.status].label}
+          </p>
+
+          <p
+            style={{
+              marginTop: '4px',
+              color: '#94a3b8',
+              fontSize: '11px',
+              lineHeight: 1.45
+            }}
+          >
+            {o.description || 'No scope description entered.'}
+          </p>
+        </div>
+
+        {revisionHistoryErrors[o.id] && (
+          <div
+            role="alert"
+            style={{
+              marginTop: '8px',
+              color: '#fca5a5',
+              fontSize: '11px'
+            }}
+          >
+            {revisionHistoryErrors[o.id]}
+
+            <button
+              type="button"
+              onClick={() => {
+                setRevisionHistory(previous => {
+                  const next = { ...previous };
+                  delete next[o.id];
+                  return next;
+                });
+
+                void toggleRevisionHistory(o);
+              }}
+              style={{
+                marginLeft: '6px',
+                border: 'none',
+                background: 'transparent',
+                color: '#7dd3fc',
+                fontSize: '11px',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {(revisionHistory[o.id] || []).map(revision => (
+          <div
+            key={revision.revision_number}
+            style={{
+              marginTop: '8px',
+              padding: '9px',
+              borderRadius: '8px',
+              border: '1px solid #1e293b',
+              background: '#131b2e'
+            }}
+          >
+            <span
+              style={{
+                display: 'block',
+                color: '#94a3b8',
+                fontSize: '10px',
+                fontWeight: 900,
+                textTransform: 'uppercase'
+              }}
+            >
+              Revision {revision.revision_number} · Previous version
+            </span>
+
+            <p
+              style={{
+                marginTop: '4px',
+                color: '#f1f5f9',
+                fontSize: '12px',
+                fontWeight: 800
+              }}
+            >
+              Previous amount:{' '}
+              {revision.prior_cost === null
+                ? 'Not recorded'
+                : `$${Number(
+                    revision.prior_cost
+                  ).toLocaleString()}`}
+            </p>
+
+            <p
+              style={{
+                marginTop: '5px',
+                color: '#cbd5e1',
+                fontSize: '11px',
+                lineHeight: 1.45
+              }}
+            >
+              <strong>Previous scope:</strong>{' '}
+              {revision.prior_description ||
+                'No scope description was recorded.'}
+            </p>
+
+            <p
+              style={{
+                marginTop: '5px',
+                color: '#bae6fd',
+                fontSize: '11px',
+                lineHeight: 1.45
+              }}
+            >
+              <strong>Revision reason:</strong>{' '}
+              {revision.revision_reason ||
+                'No revision reason was recorded.'}
+            </p>
+
+            <p
+              style={{
+                marginTop: '5px',
+                color: '#64748b',
+                fontSize: '10px'
+              }}
+            >
+              Next revision started:{' '}
+              {formatTimestamp(revision.revised_at)}
+            </p>
+          </div>
+        ))}
+
+        {!revisionHistoryErrors[o.id] &&
+          revisionHistoryLoadingId !== o.id &&
+          revisionHistory[o.id]?.length === 0 && (
+            <p
+              style={{
+                marginTop: '8px',
+                color: '#94a3b8',
+                fontSize: '11px'
+              }}
+            >
+              No previous versions were found.
+            </p>
+          )}
+      </div>
+    )}
   </div>
 )}
 {(
