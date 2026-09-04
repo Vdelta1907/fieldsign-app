@@ -745,7 +745,74 @@ setCurrentSigningToken(null);
       setClientLoadError('We could not open this authorization. Please ask the contractor for a new link.');
     }
   };
-  
+const prepareContractorNavigation = (): boolean => {
+  // Do not leave while an order is being saved or opened.
+  if (
+    orderSubmissionInProgress.current ||
+    isSaving ||
+    revisionOpeningId !== null
+  ) {
+    return false;
+  }
+
+  if (view !== 'contractor') return true;
+
+  const hasFormContent = Boolean(
+    clientName.trim() ||
+    clientPhone.trim() ||
+    projectTitle.trim() ||
+    description.trim() ||
+    cost.trim() ||
+    photoData1 ||
+    photoData2
+  );
+
+  if (editingOrderId || hasFormContent) {
+    const message = editingOrderId
+      ? 'Leave this editor?\n\n' +
+        'Any unsaved edits will be discarded. Your last saved draft ' +
+        'will remain available on the dashboard.\n\n' +
+        'To keep your latest edits, choose Cancel, then Save Draft & Exit.'
+      : 'Leave this unfinished order?\n\n' +
+        'The information entered here has not been saved and will ' +
+        'be discarded.\n\n' +
+        'To keep it, choose Cancel, then Save Draft & Exit.';
+
+    if (!window.confirm(message)) return false;
+  }
+
+  // Stop dictation before leaving the editor.
+  const recognition = speechRecognitionRef.current;
+  speechRecognitionRef.current = null;
+
+  if (recognition) {
+    recognition.onresult = null;
+    recognition.onend = null;
+
+    try {
+      recognition.stop();
+    } catch {}
+  }
+
+  setActiveListeningField(null);
+
+  // Disconnect the abandoned editor from its saved order.
+  setEditingOrderId(null);
+  setIsEditingRevision(false);
+  setCurrentOrderId(null);
+  setCurrentSigningToken(null);
+
+  setOrderType('Change Order');
+  setClientName('');
+  setClientPhone('');
+  setProjectTitle('');
+  setDescription('');
+  setCost('');
+  setPhotoData1('');
+  setPhotoData2('');
+
+  return true;
+};
 const exitOrderEditor = () => {
   if (
     orderSubmissionInProgress.current ||
@@ -1820,17 +1887,20 @@ const handleClientResponse = async (
 
     <nav className="demo-btn-group" aria-label="Contractor navigation">
       <button
-        type="button"
-        onClick={() => {
-          void fetchDashboardOrders();
-          setView('dashboard');
-          setIsAccountMenuOpen(false);
-        }}
-        className={`demo-btn ${view === 'dashboard' ? 'active' : ''}`}
-      >
-        📊 Dashboard
-      </button>
+  type="button"
+  disabled={isSaving || revisionOpeningId !== null}
+  onClick={() => {
+    if (!prepareContractorNavigation()) return;
 
+    setFilterTab('active');
+    setView('dashboard');
+    setIsAccountMenuOpen(false);
+    void fetchDashboardOrders();
+  }}
+  className={`demo-btn ${view === 'dashboard' ? 'active' : ''}`}
+>
+  📊 Dashboard
+</button>
       <button
   type="button"
   disabled={isSaving || revisionOpeningId !== null}
@@ -1954,30 +2024,46 @@ const handleClientResponse = async (
       {isAccountMenuOpen && (
         <div className="account-dropdown" role="menu">
           <button
-            type="button"
-            className="account-dropdown-item"
-            role="menuitem"
-            onClick={() => {
-              setView('settings');
-              setIsAccountMenuOpen(false);
-            }}
-          >
-            <Settings size={17} aria-hidden="true" />
-            Profile &amp; settings
-          </button>
+  type="button"
+  className="account-dropdown-item"
+  role="menuitem"
+  disabled={isSaving || revisionOpeningId !== null}
+  onClick={() => {
+    if (!prepareContractorNavigation()) return;
 
+    setView('settings');
+    setIsAccountMenuOpen(false);
+  }}
+>
+  <Settings size={17} aria-hidden="true" />
+  Profile &amp; settings
+</button>
           <button
-            type="button"
-            className="account-dropdown-item danger"
-            role="menuitem"
-            onClick={() => {
-              setIsAccountMenuOpen(false);
-              void supabase.auth.signOut();
-            }}
-          >
-            <LogOut size={17} aria-hidden="true" />
-            Sign out
-          </button>
+  type="button"
+  className="account-dropdown-item danger"
+  role="menuitem"
+  disabled={isSaving || revisionOpeningId !== null}
+  onClick={async () => {
+    if (!prepareContractorNavigation()) return;
+
+    setIsAccountMenuOpen(false);
+    setView('dashboard');
+
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      alert(
+        'We could not sign you out. You are still signed in. Please try again.'
+      );
+    }
+  }}
+>
+  <LogOut size={17} aria-hidden="true" />
+  Sign out
+</button>
         </div>
       )}
     </div>
