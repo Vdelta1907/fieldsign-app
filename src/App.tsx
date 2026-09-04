@@ -1290,6 +1290,139 @@ if (!pdfWindow) {
 window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
   };
 
+  // Monitor an already-open client authorization.
+// Fetch only status, not the order's photos or other contents.
+useEffect(() => {
+  if (
+    !isClientMode ||
+    !currentSigningToken ||
+    view !== 'client_review' ||
+    clientLoadError ||
+    clientResponseSubmitted ||
+    isSubmittingClientResponse
+  ) {
+    return;
+  }
+
+  const token = currentSigningToken;
+  let stopped = false;
+  let checking = false;
+  let controller: AbortController | null = null;
+
+  const closeAuthorization = (message: string) => {
+    setAcceptedTerms(false);
+    setHasSignature(false);
+    setSignatureData(null);
+    setSignerName('');
+    setClientResponseMode(null);
+    setCurrentSigningToken(null);
+    setClientLoadError(message);
+  };
+
+  const checkLink = async () => {
+    if (
+      stopped ||
+      checking ||
+      document.visibilityState !== 'visible' ||
+      !navigator.onLine
+    ) {
+      return;
+    }
+
+    checking = true;
+    const requestController = new AbortController();
+    controller = requestController;
+
+    const timeoutId = window.setTimeout(
+      () => requestController.abort(),
+      12_000
+    );
+
+    try {
+      const { data, error } = await supabase
+        .rpc('get_order_for_signing', { p_token: token })
+        .select('status')
+        .abortSignal(requestController.signal);
+
+      if (stopped) return;
+      if (error) throw error;
+
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected link-status response.');
+      }
+
+      const status = data[0]?.status;
+
+      if (status === 'pending') {
+        // Leave the form and any signature in progress untouched.
+        return;
+      }
+
+      if (status === 'signed') {
+        // It may have been signed in another tab or on another device.
+        await loadOrderFromDb(token);
+        return;
+      }
+
+      if (status === 'changes_requested') {
+        closeAuthorization(
+          'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
+        );
+      } else if (status === 'declined') {
+        closeAuthorization(
+          'This order has been declined, and this authorization link is now closed. Please contact your contractor if you need further assistance.'
+        );
+      } else {
+        // Includes archived, expired, replaced, or draft links.
+        closeAuthorization(
+          'This link is no longer valid for signing. Please contact your contractor.'
+        );
+      }
+    } catch (error) {
+      if (!stopped) {
+        // A connection failure does not prove the link is invalid.
+        console.warn('Unable to check authorization status:', error);
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      controller = null;
+      checking = false;
+    }
+  };
+
+  const onReturn = () => {
+    void checkLink();
+  };
+
+  void checkLink();
+
+  const timerId = window.setInterval(() => {
+    void checkLink();
+  }, 5_000);
+
+  document.addEventListener('visibilitychange', onReturn);
+  window.addEventListener('focus', onReturn);
+  window.addEventListener('pageshow', onReturn);
+  window.addEventListener('online', onReturn);
+
+  return () => {
+    stopped = true;
+    controller?.abort();
+    window.clearInterval(timerId);
+
+    document.removeEventListener('visibilitychange', onReturn);
+    window.removeEventListener('focus', onReturn);
+    window.removeEventListener('pageshow', onReturn);
+    window.removeEventListener('online', onReturn);
+  };
+}, [
+  isClientMode,
+  currentSigningToken,
+  view,
+  clientLoadError,
+  clientResponseSubmitted,
+  isSubmittingClientResponse
+]);
   const displayedOrders = filterTab === null ? [] : orders.filter(o => {
     if (filterTab === 'pending') return o.status === 'pending';
     if (filterTab === 'signed') return o.status === 'signed';
