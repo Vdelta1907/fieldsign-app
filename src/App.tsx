@@ -744,8 +744,103 @@ setCurrentSigningToken(null);
       setClientLoadError('We could not open this authorization. Please ask the contractor for a new link.');
     }
   };
+  
+const exitOrderEditor = () => {
+  if (
+    orderSubmissionInProgress.current ||
+    isSaving ||
+    revisionOpeningId !== null
+  ) {
+    return;
+  }
 
-const openOrderForRevision = async (order: OrderRecord) => {
+  const hasFormContent = Boolean(
+    clientName.trim() ||
+    clientPhone.trim() ||
+    projectTitle.trim() ||
+    description.trim() ||
+    cost.trim() ||
+    photoData1 ||
+    photoData2
+  );
+
+  if (editingOrderId) {
+    const confirmed = window.confirm(
+      'Exit this revision?\n\n' +
+      'Any unsaved edits will be discarded. The last saved draft ' +
+      'will remain on your dashboard under All Orders, where you ' +
+      'can choose Continue Editing Draft.\n\n' +
+      'The previous client link will remain closed.'
+    );
+
+    if (!confirmed) return;
+  } else if (hasFormContent) {
+    const confirmed = window.confirm(
+      'Cancel this new order?\n\n' +
+      'The information entered here has not been saved and will be discarded.'
+    );
+
+    if (!confirmed) return;
+  }
+
+  // Prevent dictation from adding text after leaving the form.
+  const recognition = speechRecognitionRef.current;
+  speechRecognitionRef.current = null;
+
+  if (recognition) {
+    recognition.onresult = null;
+    recognition.onend = null;
+
+    try {
+      recognition.stop();
+    } catch {}
+  }
+
+  setActiveListeningField(null);
+
+  // Remove the connection to the order being edited.
+  setEditingOrderId(null);
+  setCurrentOrderId(null);
+  setCurrentSigningToken(null);
+
+  setOrderType('Change Order');
+  setClientName('');
+  setClientPhone('');
+  setProjectTitle('');
+  setDescription('');
+  setCost('');
+  setPhotoData1('');
+  setPhotoData2('');
+
+  setOrderContractorName('');
+  setOrderContractorLogo('');
+  setOrderContractorLicense('');
+  setOrderContractorPhone('');
+  setOrderContractorEmail('');
+  setOrderTerms('');
+  setOrderRequirePaymentUpfront(false);
+  setOrderPaymentsEnabled(false);
+
+  setSignatureData(null);
+  setSignTimestamp(null);
+  setSignerName('');
+  setAcceptedTerms(false);
+  setHasSignature(false);
+  setPaymentStatus('unpaid');
+
+  setClientResponseMode(null);
+  setClientResponseNote('');
+  setClientResponseSubmitted(null);
+  setClientLoadError('');
+
+  // Show All Orders so the retained draft is easy to find.
+  setFilterTab('active');
+  setIsAccountMenuOpen(false);
+  setView('dashboard');
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+  const openOrderForRevision = async (order: OrderRecord) => {
   if (revisionOpeningId) return;
 
   setRevisionOpeningId(order.id);
@@ -2377,16 +2472,51 @@ const handleClientResponse = async (
               <input type="number" className="price-input" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" />
             </div>
 
-            <button
-  type="button"
-  onClick={() => void createOrder()}
-  disabled={isSaving}
-  className="btn-primary"
-  aria-busy={isSaving}
->
-  {isSaving ? 'Saving order securely…' : '🚀 Save & Text Link to Client'}
-</button>    
+            <div>
+  {editingOrderId && (
+    <p
+      style={{
+        marginBottom: '12px',
+        padding: '10px 12px',
+        borderRadius: '9px',
+        background: 'rgba(56, 189, 248, 0.1)',
+        border: '1px solid rgba(56, 189, 248, 0.35)',
+        color: '#bae6fd',
+        fontSize: '12px',
+        lineHeight: 1.5
+      }}
+    >
+      You are editing a draft. Changes are not saved automatically.
+      Exiting keeps the last saved draft available on your dashboard.
+      The previous client link remains closed.
+    </p>
+  )}
+
+  <button
+    type="button"
+    onClick={() => void createOrder()}
+    disabled={isSaving || revisionOpeningId !== null}
+    className="btn-primary"
+    aria-busy={isSaving}
+  >
+    {isSaving
+      ? 'Saving order securely…'
+      : '🚀 Save & Text Link to Client'}
+  </button>
+
+  <button
+    type="button"
+    onClick={exitOrderEditor}
+    disabled={isSaving || revisionOpeningId !== null}
+    className="btn-secondary"
+    style={{ marginTop: '10px' }}
+  >
+    {editingOrderId
+      ? '← Exit Revision'
+      : '← Cancel New Order'}
+  </button>
 </div>
+          </div>
         )}
 
         {/* VIEW 2: CLIENT SIGN-OFF */}
