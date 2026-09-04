@@ -2228,8 +2228,10 @@ const handleClientResponse = async (
 <div
   style={{
     display: 'flex',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    overflowX: 'auto',
     gap: '6px',
+    paddingBottom: '4px',
     marginBottom: '14px'
   }}
 >
@@ -2263,7 +2265,8 @@ const handleClientResponse = async (
       onClick={() => handleTabToggle(tab.key)}
       aria-expanded={filterTab === tab.key}
       style={{
-        padding: '6px 12px',
+        padding: '6px 8px',
+flexShrink: 0,
         borderRadius: '20px',
         border: 'none',
         fontSize: '11px',
