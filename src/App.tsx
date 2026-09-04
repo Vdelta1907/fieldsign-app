@@ -2703,7 +2703,7 @@ const handleClientResponse = async (
                 fontSize: '10px'
               }}
             >
-              Next revision started:{' '}
+              Revision initiated:{' '}
               {formatTimestamp(revision.revised_at)}
             </p>
           </div>
