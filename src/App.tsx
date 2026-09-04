@@ -2224,14 +2224,14 @@ const handleClientResponse = async (
     {attentionCount === 1 ? 'client response requires' : 'client responses require'} your attention.
   </div>
 )}
-            {/* Collapsible / Accordion Status Buttons */}
+           {/* Collapsible / Accordion Status Buttons */}
 <div
   style={{
-    display: 'flex',
-    flexWrap: 'nowrap',
-    overflowX: 'auto',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
     gap: '6px',
-    paddingBottom: '4px',
+    width: '100%',
+    minWidth: 0,
     marginBottom: '14px'
   }}
 >
@@ -2244,17 +2244,17 @@ const handleClientResponse = async (
       },
       {
         key: 'draft',
-        label: '✎ Drafts',
+        label: 'Drafts',
         count: draftCount
       },
       {
         key: 'pending',
-        label: '⏳ Pending',
+        label: 'Pending',
         count: pendingCount
       },
       {
         key: 'signed',
-        label: '✓ Signed',
+        label: 'Signed',
         count: signedCount
       }
     ] as const
@@ -2264,27 +2264,34 @@ const handleClientResponse = async (
       type="button"
       onClick={() => handleTabToggle(tab.key)}
       aria-expanded={filterTab === tab.key}
+      aria-label={`${tab.label}: ${tab.count} orders`}
       style={{
-        padding: '6px 8px',
-flexShrink: 0,
-        borderRadius: '20px',
+        width: '100%',
+        minWidth: 0,
+        minHeight: '52px',
+        boxSizing: 'border-box',
+        padding: '8px 2px',
+        borderRadius: '12px',
         border: 'none',
         fontSize: '11px',
         fontWeight: 700,
+        lineHeight: 1.3,
         cursor: 'pointer',
         background:
           filterTab === tab.key ? '#f59e0b' : '#1e293b',
         color:
           filterTab === tab.key ? '#0f172a' : '#94a3b8',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        gap: '4px',
-        whiteSpace: 'nowrap'
+        justifyContent: 'center',
+        gap: '3px'
       }}
     >
-      {tab.label} ({tab.count})
-      {' '}
-      {filterTab === tab.key ? '▲' : '▼'}
+      <span>{tab.label}</span>
+      <span>
+        {tab.count} {filterTab === tab.key ? '▲' : '▼'}
+      </span>
     </button>
   ))}
 </div>
