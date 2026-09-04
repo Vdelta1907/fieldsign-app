@@ -659,6 +659,8 @@ useEffect(() => {
 // Signed orders can still display their locked receipt.
 if (o.status !== 'pending' && o.status !== 'signed') {
   setCurrentOrderId(null);
+  setEditingOrderId(null);
+setCurrentSigningToken(null);
   setCurrentSigningToken(null);
   setAcceptedTerms(false);
   setHasSignature(false);
@@ -1783,7 +1785,11 @@ const handleClientResponse = async (
     </p>
   </div>
 )}
-{o.status !== 'signed' && (
+{(
+  o.status === 'draft' ||
+  o.status === 'changes_requested' ||
+  o.status === 'declined'
+) && (
   <button
     type="button"
     onClick={() => void openOrderForRevision(o)}
@@ -1817,7 +1823,9 @@ const handleClientResponse = async (
   </button>
 )}                    
   <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                      <button
+    {o.status === 'pending' && (
+  <>
+    <button
                         type="button"
                         onClick={() => o.signing_token && triggerNativeSms(o.client_phone, o.client_name, o.project_title, o.cost, o.signing_token, o.order_type)}
                         style={{ flex: 1.2, padding: '8px', borderRadius: '8px', border: '1px solid #10b981', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
@@ -1836,7 +1844,8 @@ const handleClientResponse = async (
                       >
                         📋 Copy Link
                       </button>
-
+      </>
+)}
                       {o.status === 'signed' && (
                         <button
                           type="button"
