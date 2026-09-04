@@ -1835,7 +1835,6 @@ const handleClientResponse = async (
   type="button"
   disabled={isSaving || revisionOpeningId !== null}
   onClick={() => {
-    // Do not switch forms while saving or preparing a revision.
     if (
       orderSubmissionInProgress.current ||
       isSaving ||
@@ -1845,14 +1844,18 @@ const handleClientResponse = async (
     }
 
     if (editingOrderId) {
-      const leaveRevision = window.confirm(
-        'Leave this revision and start a new order?\n\n' +
+      const confirmed = window.confirm(
+        (isEditingRevision
+          ? 'Leave this revision and start a new order?\n\n'
+          : 'Leave this draft and start a new order?\n\n') +
         'Any unsaved edits will be discarded. The last saved draft ' +
-        'will remain on your dashboard so you can continue editing later. ' +
-        'The previous client link will remain closed.'
+        'will remain on your dashboard so you can continue editing later.' +
+        (isEditingRevision
+          ? '\n\nThe previous client link will remain closed.'
+          : '')
       );
 
-      if (!leaveRevision) return;
+      if (!confirmed) return;
     } else if (
       view === 'contractor' &&
       (
@@ -1865,14 +1868,15 @@ const handleClientResponse = async (
         photoData2
       )
     ) {
-      const discardNewOrder = window.confirm(
-        'Discard the information in this unsaved order and start a new one?'
+      const confirmed = window.confirm(
+        'Discard this unfinished order and start a new one?\n\n' +
+        'Any information that has not been saved will be discarded.'
       );
 
-      if (!discardNewOrder) return;
+      if (!confirmed) return;
     }
 
-    // Prevent late dictation results from filling the new form.
+    // Stop dictation before clearing the form.
     const recognition = speechRecognitionRef.current;
     speechRecognitionRef.current = null;
 
@@ -1882,15 +1886,14 @@ const handleClientResponse = async (
 
       try {
         recognition.stop();
-      } catch {
-        // Recognition may already have stopped.
-      }
+      } catch {}
     }
 
     setActiveListeningField(null);
 
-    // A new order must never retain another order's identity.
+    // Start a genuinely new order.
     setEditingOrderId(null);
+    setIsEditingRevision(false);
     setCurrentOrderId(null);
     setCurrentSigningToken(null);
 
@@ -1903,7 +1906,6 @@ const handleClientResponse = async (
     setPhotoData1('');
     setPhotoData2('');
 
-    // Clear metadata and authorization state from previous orders.
     setOrderContractorName('');
     setOrderContractorLogo('');
     setOrderContractorLicense('');
@@ -1919,6 +1921,7 @@ const handleClientResponse = async (
     setAcceptedTerms(false);
     setHasSignature(false);
     setPaymentStatus('unpaid');
+
     setClientResponseMode(null);
     setClientResponseNote('');
     setClientResponseSubmitted(null);
@@ -1926,6 +1929,7 @@ const handleClientResponse = async (
 
     setIsAccountMenuOpen(false);
     setView('contractor');
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }}
   className={`demo-btn ${view === 'contractor' ? 'active' : ''}`}
