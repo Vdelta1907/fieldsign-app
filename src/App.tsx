@@ -1039,13 +1039,38 @@ const openOrderForRevision = async (order: OrderRecord) => {
       setSignTimestamp(result?.signed_at_utc || new Date().toISOString());
       setPaymentStatus(result?.payment_status || (openStripe ? 'pending' : 'unpaid'));
       setView('signed_receipt');
-    } catch (err) {
-      paymentWindow?.close();
-      console.error('Error recording signature:', err);
-      alert(err instanceof Error ? err.message : 'We could not save the signature. Please try again.');
-      return;
-    }
+    } catch (err: unknown) {
+  paymentWindow?.close();
+  console.error('Error recording signature:', err);
 
+  const errorMessage =
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof err.message === 'string'
+      ? err.message
+      : '';
+
+  const linkIsClosed = errorMessage
+    .toLowerCase()
+    .includes('this signing link is invalid');
+
+  if (linkIsClosed) {
+    setAcceptedTerms(false);
+    setHasSignature(false);
+    setCurrentSigningToken(null);
+
+    setClientLoadError(
+      'This link is no longer valid for signing. Please contact your contractor.'
+    );
+  } else {
+    alert(
+      'We could not confirm whether your signature was saved. Please check your connection and reopen this link to check the order’s status.'
+    );
+  }
+
+  return;
+}
     if (openStripe) {
       try {
         await openSecureCheckout(paymentWindow);
