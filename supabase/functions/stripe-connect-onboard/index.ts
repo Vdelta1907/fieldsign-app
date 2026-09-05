@@ -34,21 +34,55 @@ Deno.serve(async (request) => {
 
     let accountId = profile.stripe_account_id as string | null;
     if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'standard',
-        country: 'US',
-        email: user.email,
-        business_profile: profile.company_name ? { name: profile.company_name } : undefined,
-        metadata: { fieldsign_user_id: user.id },
-      });
-      accountId = account.id;
-      const { error } = await admin
-        .from('contractor_profiles')
-        .update({ stripe_account_id: accountId, updated_at: new Date().toISOString() })
-        .eq('user_id', user.id);
-      if (error) throw error;
-    }
+  const account = await stripe.v2.core.accounts.create(
+    {
+      contact_email: user.email || undefined,
+      display_name:
+        profile.company_name ||
+        user.email ||
+        'SignForth Contractor',
+      dashboard: 'full',
+      identity: {
+        country: 'us',
+      },
+      configuration: {
+        merchant: {
+          capabilities: {
+            card_payments: {
+              requested: true,
+            },
+          },
+        },
+      },
+      defaults: {
+        currency: 'usd',
+        responsibilities: {
+          fees_collector: 'stripe',
+          losses_collector: 'stripe',
+        },
+      },
+      metadata: {
+        fieldsign_user_id: user.id,
+      },
+    },
+    {
+      idempotencyKey:
+        `signforth-connected-account-${user.id}`,
+    },
+  );
 
+  accountId = account.id;
+
+  const { error } = await admin
+    .from('contractor_profiles')
+    .update({
+      stripe_account_id: accountId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', user.id);
+
+  if (error) throw error;
+}
     const account = await stripe.accounts.retrieve(accountId);
     const chargesEnabled = Boolean(account.charges_enabled);
     const detailsSubmitted = Boolean(account.details_submitted);
@@ -62,13 +96,17 @@ Deno.serve(async (request) => {
       return jsonResponse({ status: 'connected' });
     }
 
-    const link = await stripe.accountLinks.create({
-      account: accountId,
+    const link = await stripe.v2.core.accountLinks.create({
+  account: accountId,
+  use_case: {
+    type: 'account_onboarding',
+    account_onboarding: {
+      configurations: ['merchant'],
       refresh_url: `${appUrl}?stripe=refresh`,
       return_url: `${appUrl}?stripe=return`,
-      type: 'account_onboarding',
-      collection_options: { fields: 'eventually_due' },
-    });
+    },
+  },
+});
     return jsonResponse({ status: 'onboarding', url: link.url });
   } catch (error) {
     console.error(error);
