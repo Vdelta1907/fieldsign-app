@@ -3376,10 +3376,23 @@ const handleClientResponse = async (
             </div>
 
             <div className="form-group">
-              <label className="form-label">Authorized Amount ($ USD)</label>
-              <input type="number" className="price-input" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" />
-            </div>
-
+  <label className="form-label">Authorized Amount ($ USD)</label>
+  <input
+    type="number"
+    className="price-input"
+    value={cost}
+    onChange={(e) => setCost(e.target.value)}
+    onBlur={() => {
+      if (cost !== '') {
+        setCost(Number(cost).toFixed(2));
+      }
+    }}
+    placeholder="0.00"
+    min="0"
+    step="0.01"
+    inputMode="decimal"
+  />
+</div>
             <div>
   {editingOrderId && isEditingRevision && (
   <p
