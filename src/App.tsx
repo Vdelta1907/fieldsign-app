@@ -4216,6 +4216,7 @@ setClientResponseNote('');
     color: '#0f172a',
     fontSize: '13px',
     fontWeight: 800,
+    cursor: isOpeningCheckout ? 'default' : 'pointer',
   }}
 >
   💳 Continue to Secure Payment
