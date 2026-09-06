@@ -1622,9 +1622,7 @@ newOrderSubmissionIdRef.current = null;
     return;
   }
 
-  
-
-  const signature = canvas.toDataURL();
+   const signature = canvas.toDataURL();
 
   const submissionId =
     signatureSubmissionIdRef.current ||
@@ -1667,7 +1665,6 @@ newOrderSubmissionIdRef.current = null;
     );
     setView('signed_receipt');
   } catch (error: unknown) {
-    paymentWindow?.close();
     console.error('Error recording signature:', error);
 
     const message =
