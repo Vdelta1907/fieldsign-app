@@ -124,6 +124,17 @@ const formatTimestamp = (value?: string | null): string => {
     timeZoneName: 'short'
   }).format(date);
 };
+
+const formatCurrency = (
+  value: number | string | null | undefined
+) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+
 export default function App() {
   const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
   const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
@@ -344,7 +355,7 @@ const signatureSubmissionIdRef =
   const url = token ? buildSigningUrl(token) : window.location.href;
   const bodyText =
     `Hi ${name || 'there'}, please review and authorize the ` +
-    `${currentType} for "${project || 'Job'}" ($${amount}): ${url}`;
+    `${currentType} for "${project || 'Job'}" (${formatCurrency(amount)}): ${url}`;
 
   window.location.href =
     `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
@@ -1873,7 +1884,7 @@ newOrderSubmissionIdRef.current = null;
 
     doc.setFontSize(16);
     doc.setTextColor(251, 191, 36);
-    doc.text(`$${dCost || '0.00'} USD`, 556, costY + 26, { align: 'right' });
+    doc.text(`${formatCurrency(dCost)} USD`, 556, costY + 26, { align: 'right' });
 
     const termsY = costY + 48;
     const termsLines = doc.splitTextToSize(dTerms, 512).slice(0, 8);
@@ -2583,7 +2594,7 @@ const handleClientResponse = async (
               <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
                 <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Total Approved</span>
                 <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
-                  ${totalApprovedRevenue.toLocaleString()}
+                  {formatCurrency(totalApprovedRevenue)}
                 </h3>
                 <span style={{ fontSize: '10px', color: '#64748b' }}>{signedCount} signed orders</span>
               </div>
@@ -2591,7 +2602,7 @@ const handleClientResponse = async (
               <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
                 <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Direct Paid (Stripe)</span>
                 <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#38bdf8', marginTop: '2px' }}>
-                  ${totalPaidRevenue.toLocaleString()}
+                  {formatCurrency(totalPaidRevenue)}
                 </h3>
                 <span style={{ fontSize: '10px', color: '#64748b' }}>{paidCount} confirmed payments</span>
               </div>
@@ -2724,7 +2735,7 @@ const handleClientResponse = async (
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <span style={{ fontSize: '16px', fontWeight: 900, color: o.status === 'signed' ? '#10b981' : '#f1f5f9' }}>
-                          ${o.cost}
+                          {formatCurrency(o.cost)}
                         </span>
                         <div
   style={{
@@ -2894,7 +2905,7 @@ const handleClientResponse = async (
               lineHeight: 1.45
             }}
           >
-            ${Number(o.cost || 0).toLocaleString()} ·{' '}
+            {formatCurrency(o.cost)} ·{' '}
             {ORDER_STATUS_META[o.status].label}
           </p>
 
@@ -2979,11 +2990,9 @@ const handleClientResponse = async (
               }}
             >
               Previous amount:{' '}
-              {revision.prior_cost === null
-                ? 'Not recorded'
-                : `$${Number(
-                    revision.prior_cost
-                  ).toLocaleString()}`}
+{revision.prior_cost === null
+  ? 'Not recorded'
+  : formatCurrency(revision.prior_cost)}
             </p>
 
             <p
@@ -3688,7 +3697,7 @@ const handleClientResponse = async (
 
         <div className="summary-total">
           <span>Authorized Total:</span>
-          <span>${cost || '0.00'}</span>
+          <span>{formatCurrency(cost)}</span>
         </div>
       </div>
 
@@ -4149,7 +4158,9 @@ setClientResponseNote('');
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: '#64748b' }}>Amount:</span>
-                <strong style={{ color: '#34d399' }}>${cost}</strong>
+                <strong style={{ color: '#34d399' }}>
+  {formatCurrency(cost)}
+</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: '#64748b' }}>Payment:</span>
