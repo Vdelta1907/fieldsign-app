@@ -86,12 +86,18 @@ Deno.serve(async (request) => {
     const account = await stripe.accounts.retrieve(accountId);
     const chargesEnabled = Boolean(account.charges_enabled);
     const detailsSubmitted = Boolean(account.details_submitted);
-    await admin.from('contractor_profiles').update({
-      stripe_charges_enabled: chargesEnabled,
-      stripe_details_submitted: detailsSubmitted,
-      updated_at: new Date().toISOString(),
-    }).eq('user_id', user.id);
+    const { error: statusUpdateError } = await admin
+  .from('contractor_profiles')
+  .update({
+    stripe_charges_enabled: chargesEnabled,
+    stripe_details_submitted: detailsSubmitted,
+    updated_at: new Date().toISOString(),
+  })
+  .eq('user_id', user.id);
 
+if (statusUpdateError) {
+  throw statusUpdateError;
+}
     if (chargesEnabled && detailsSubmitted) {
       return jsonResponse({ status: 'connected' });
     }
