@@ -4153,7 +4153,7 @@ setClientResponseNote('');
 
             <h2 style={{ fontSize: '18px', fontWeight: 800 }}>Document Authorized & Locked</h2>
             <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-              {paymentStatus === 'paid' ? 'Payment confirmed and the authorization is secured.' : paymentStatus === 'pending' ? 'Authorization saved. Complete payment in the Stripe window.' : 'Authorization saved securely.'}
+              {paymentStatus === 'paid' ? 'Payment confirmed and the authorization is secured.' : paymentStatus === 'pending' ? 'Authorization saved. Continue below to complete payment securely with Stripe.' : 'Authorization saved securely.'}
             </p>
 
             <div style={{ background: '#0b1120', borderRadius: '12px', padding: '14px', margin: '16px 0', textAlign: 'left', border: '1px solid #1e293b', fontSize: '12px' }}>
