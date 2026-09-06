@@ -204,6 +204,8 @@ const [revisionHistoryErrors, setRevisionHistoryErrors] = useState<
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingSignature, setIsSubmittingSignature] =
   useState(false);
+const [isOpeningCheckout, setIsOpeningCheckout] =
+  useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signTimestamp, setSignTimestamp] = useState<string | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
@@ -1570,18 +1572,25 @@ newOrderSubmissionIdRef.current = null;
     throw new Error('Signing token is unavailable.');
   }
 
-  const { data, error } = await supabase.functions.invoke(
-    'create-checkout',
-    {
-      body: { signingToken },
+  setIsOpeningCheckout(true);
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'create-checkout',
+      {
+        body: { signingToken },
+      }
+    );
+
+    if (error || !data?.url) {
+      throw error || new Error('Secure checkout is unavailable.');
     }
-  );
 
-  if (error || !data?.url) {
-    throw error || new Error('Secure checkout is unavailable.');
+    window.location.assign(data.url);
+  } catch (error) {
+    setIsOpeningCheckout(false);
+    throw error;
   }
-
-  window.location.assign(data.url);
 };
   const finalizeSignatureAndPay = async (
   openStripe: boolean = false
@@ -4167,13 +4176,31 @@ setClientResponseNote('');
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
               {paymentStatus === 'pending' && orderPaymentsEnabled && (
                 <button
-                  type="button"
-                  onClick={() => void openSecureCheckout().catch(() => alert('Secure payment could not open. Please try again.'))}
-                  style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#38bdf8', color: '#0f172a', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
-                >
-                  💳 Continue to Secure Payment
-                </button>
-              )}
+  type="button"
+  disabled={isOpeningCheckout}
+  onClick={() =>
+    void openSecureCheckout().catch(() =>
+      alert('Secure payment could not open. Please try again.')
+    )
+  }
+  style={{
+    width: '100%',
+    padding: '12px',
+    borderRadius: '10px',
+    border: 'none',
+    background: '#38bdf8',
+    color: '#0f172a',
+    fontSize: '13px',
+    fontWeight: 800,
+    cursor: isOpeningCheckout ? 'wait' : 'pointer',
+    opacity: isOpeningCheckout ? 0.75 : 1,
+  }}
+>
+  {isOpeningCheckout
+    ? '⏳ Opening Secure Payment…'
+    : '💳 Continue to Secure Payment'}
+</button>
+          )}
               <button
                 type="button"
                 onClick={() => void handleDownloadPdf()}
