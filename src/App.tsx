@@ -4203,14 +4203,10 @@ setClientResponseNote('');
     color: '#0f172a',
     fontSize: '13px',
     fontWeight: 800,
-    cursor: isOpeningCheckout ? 'wait' : 'pointer',
-    opacity: isOpeningCheckout ? 0.75 : 1,
   }}
 >
-  {isOpeningCheckout
-    ? '⏳ Opening Secure Payment…'
-    : '💳 Continue to Secure Payment'}
-</button>
+  💳 Continue to Secure Payment
+                </button>
           )}
               <button
                 type="button"
