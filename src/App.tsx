@@ -1563,22 +1563,27 @@ newOrderSubmissionIdRef.current = null;
     setHasSignature(false);
   };
 
-  const openSecureCheckout = async (existingWindow?: Window | null) => {
-    if (!currentSigningToken) throw new Error('The secure signing token is missing.');
-    const paymentWindow = existingWindow || window.open('about:blank', '_blank');
-    if (!paymentWindow) throw new Error('Please allow pop-ups to continue to secure payment.');
+  const openSecureCheckout = async () => {
+  const signingToken = currentSigningToken;
 
-    const { data, error } = await supabase.functions.invoke('create-checkout', {
-      body: { signingToken: currentSigningToken },
-    });
-    if (error || !data?.url) {
-      paymentWindow.close();
-      throw error || new Error('Secure checkout is unavailable.');
+  if (!signingToken) {
+    throw new Error('Signing token is unavailable.');
+  }
+
+  const { data, error } = await supabase.functions.invoke(
+    'create-checkout',
+    {
+      body: { signingToken },
     }
-    paymentWindow.location.href = data.url;
-  };
+  );
 
-const finalizeSignatureAndPay = async (
+  if (error || !data?.url) {
+    throw error || new Error('Secure checkout is unavailable.');
+  }
+
+  window.location.assign(data.url);
+};
+  const finalizeSignatureAndPay = async (
   openStripe: boolean = false
 ) => {
   if (
@@ -1617,18 +1622,7 @@ const finalizeSignatureAndPay = async (
     return;
   }
 
-  // Open Stripe synchronously so the browser recognizes
-  // that the window was requested by the client's tap.
-  const paymentWindow = openStripe
-    ? window.open('about:blank', '_blank')
-    : null;
-
-  if (openStripe && !paymentWindow) {
-    alert(
-      'Please allow pop-ups before continuing to secure payment.'
-    );
-    return;
-  }
+  
 
   const signature = canvas.toDataURL();
 
@@ -1706,20 +1700,18 @@ const finalizeSignatureAndPay = async (
   }
 
   if (openStripe) {
-    try {
-      await openSecureCheckout(paymentWindow);
-    } catch (error) {
-      console.error('Checkout failed:', error);
+  try {
+    await openSecureCheckout();
+  } catch (error) {
+    console.error('Checkout failed:', error);
 
-      alert(
-        'Your authorization was saved, but secure payment could not open. ' +
-        'Use Continue to Payment to try again.'
-      );
-    }
-  } else {
-    paymentWindow?.close();
+    alert(
+      'Your authorization was saved, but secure payment could not open. ' +
+      'Use Continue to Payment to try again.'
+    );
   }
-};
+}
+  };
   
   const handleDownloadPdf = async (targetDoc?: { 
     company?: string; 
