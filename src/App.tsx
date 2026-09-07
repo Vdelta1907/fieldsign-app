@@ -1009,14 +1009,14 @@ const exitOrderEditor = () => {
 
   if (editingOrderId) {
     const confirmed = window.confirm(
-      (isEditingRevision
-        ? 'Exit this revision?\n\n'
-        : 'Exit this draft?\n\n') +
-      'Any unsaved edits will be discarded. The last saved draft will remain on your dashboard under Drafts, where you can choose Continue Editing Draft.'
-      (isEditingRevision
-        ? '\n\nThe previous client link will remain closed.'
-        : '')
-    );
+  (isEditingRevision
+    ? 'Exit this revision?\n\n'
+    : 'Exit this draft?\n\n') +
+  'Any unsaved edits will be discarded. The last saved draft will remain on your dashboard under Drafts, where you can choose Continue Editing Draft.' +
+  (isEditingRevision
+    ? '\n\nThe previous client link will remain closed.'
+    : '')
+);
 
     if (!confirmed) return;
   } else if (hasFormContent) {
