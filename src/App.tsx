@@ -566,7 +566,32 @@ const fetchDashboardOrders = useCallback(
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('*')
+        .select(`
+  id,
+  order_type,
+  contractor_company,
+  contractor_license,
+  contractor_phone,
+  contractor_email,
+  custom_terms,
+  project_title,
+  client_name,
+  client_phone,
+  description,
+  cost,
+  status,
+  revision_number,
+  client_response_note,
+  client_responded_at,
+  last_sent_at,
+  payment_status,
+  require_payment_upfront,
+  signing_token,
+  signed_at,
+  signed_at_utc,
+  signer_name,
+  created_at
+`)
         .eq('owner_id', dashboardUserId)
         .is('archived_at', null)
         .order('created_at', { ascending: false })
@@ -1116,15 +1141,19 @@ const exitOrderEditor = () => {
     );
   }
 };
-  const openOrderForRevision = async (order: OrderRecord) => {
+   const openOrderForRevision = async (
+  order: OrderRecord
+) => {
   if (revisionOpeningId) return;
 
   setRevisionOpeningId(order.id);
 
   try {
-    let activeSigningToken = order.signing_token || null;
+    let activeSigningToken =
+      order.signing_token || null;
 
-    // Drafts were already rotated and can simply be reopened.
+    // Non-draft orders must first be rotated into a
+    // protected revision draft with a new signing token.
     if (order.status !== 'draft') {
       const { data, error } = await supabase.rpc(
         'fieldsign_start_revision',
@@ -1147,27 +1176,69 @@ const exitOrderEditor = () => {
         revisionResult?.signing_token || null;
     }
 
-    setEditingOrderId(order.id);
+    // The dashboard intentionally excludes large photo
+    // fields. Load them only for the one order being edited.
+    const {
+      data: detailedOrder,
+      error: detailError
+    } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_type,
+        project_title,
+        client_name,
+        client_phone,
+        description,
+        cost,
+        status,
+        revision_number,
+        signing_token,
+        photo_data,
+        photo_data_2
+      `)
+      .eq('id', order.id)
+      .is('archived_at', null)
+      .single();
+
+    if (detailError) throw detailError;
+
+    if (!detailedOrder) {
+      throw new Error(
+        'This order is no longer available.'
+      );
+    }
+
+    activeSigningToken =
+      detailedOrder.signing_token ||
+      activeSigningToken;
+
+    setEditingOrderId(detailedOrder.id);
     setIsEditingRevision(
-  order.status !== 'draft' ||
-  (order.revision_number ?? 1) > 1
-);
-    setCurrentOrderId(order.id);
+      order.status !== 'draft' ||
+      (detailedOrder.revision_number ?? 1) > 1
+    );
+    setCurrentOrderId(detailedOrder.id);
     setCurrentSigningToken(activeSigningToken);
     revisionPublishSubmissionIdRef.current = null;
+
     setOrderType(
-      order.order_type as
+      detailedOrder.order_type as
         | 'Change Order'
         | 'New Job Agreement'
     );
 
-    setClientName(order.client_name);
-    setClientPhone(order.client_phone);
-    setProjectTitle(order.project_title);
-    setDescription(order.description);
-    setCost(String(order.cost));
-    setPhotoData1(order.photo_data || '');
-    setPhotoData2(order.photo_data_2 || '');
+    setClientName(detailedOrder.client_name);
+    setClientPhone(detailedOrder.client_phone);
+    setProjectTitle(detailedOrder.project_title);
+    setDescription(detailedOrder.description);
+    setCost(String(detailedOrder.cost));
+    setPhotoData1(
+      detailedOrder.photo_data || ''
+    );
+    setPhotoData2(
+      detailedOrder.photo_data_2 || ''
+    );
 
     setView('contractor');
 
@@ -1176,7 +1247,10 @@ const exitOrderEditor = () => {
       behavior: 'smooth'
     });
   } catch (err: unknown) {
-    console.error('Revision preparation error:', err);
+    console.error(
+      'Revision preparation error:',
+      err
+    );
 
     alert(
       err instanceof Error
@@ -3114,31 +3188,99 @@ const handleClientResponse = async (
 )}
                       {o.status === 'signed' && (
                         <button
-                          type="button"
-                          onClick={() => handleDownloadPdf({
-                            company: o.contractor_company,
-                            logo: o.contractor_logo,
-                            license: o.contractor_license,
-                            phone: o.contractor_phone,
-                            email: o.contractor_email,
-                            terms: o.custom_terms,
-                            type: o.order_type,
-                            project: o.project_title,
-                            client: o.client_name,
-                            clientPhone: o.client_phone,
-                            desc: o.description,
-                            amount: o.cost,
-                            photo1: o.photo_data,
-                            photo2: o.photo_data_2,
-                            sig: o.signature_data,
-                            date: o.signed_at_utc || o.signed_at,
-                            docId: o.id,
-                            isPaid: o.payment_status === 'paid'
-                          })}
-                          style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
-                        >
-                          📄 View Signed Authorization PDF
-                        </button>
+  type="button"
+  onClick={() => {
+    void (async () => {
+      try {
+        const {
+          data: pdfOrder,
+          error: pdfOrderError
+        } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            contractor_company,
+            contractor_logo,
+            contractor_license,
+            contractor_phone,
+            contractor_email,
+            custom_terms,
+            order_type,
+            project_title,
+            client_name,
+            client_phone,
+            description,
+            cost,
+            photo_data,
+            photo_data_2,
+            signature_data,
+            signed_at,
+            signed_at_utc,
+            payment_status
+          `)
+          .eq('id', o.id)
+          .is('archived_at', null)
+          .single();
+
+        if (pdfOrderError) {
+          throw pdfOrderError;
+        }
+
+        if (!pdfOrder) {
+          throw new Error(
+            'The signed order is unavailable.'
+          );
+        }
+
+        handleDownloadPdf({
+          company: pdfOrder.contractor_company,
+          logo: pdfOrder.contractor_logo,
+          license: pdfOrder.contractor_license,
+          phone: pdfOrder.contractor_phone,
+          email: pdfOrder.contractor_email,
+          terms: pdfOrder.custom_terms,
+          type: pdfOrder.order_type,
+          project: pdfOrder.project_title,
+          client: pdfOrder.client_name,
+          clientPhone: pdfOrder.client_phone,
+          desc: pdfOrder.description,
+          amount: pdfOrder.cost,
+          photo1: pdfOrder.photo_data,
+          photo2: pdfOrder.photo_data_2,
+          sig: pdfOrder.signature_data,
+          date:
+            pdfOrder.signed_at_utc ||
+            pdfOrder.signed_at,
+          docId: pdfOrder.id,
+          isPaid:
+            pdfOrder.payment_status === 'paid'
+        });
+      } catch (error) {
+        console.error(
+          'Signed PDF loading error:',
+          error
+        );
+
+        alert(
+          'The signed authorization PDF could not be loaded. Please try again.'
+        );
+      }
+    })();
+  }}
+  style={{
+    flex: 1,
+    padding: '8px',
+    borderRadius: '8px',
+    border: 'none',
+    background: '#10b981',
+    color: '#ffffff',
+    fontSize: '11px',
+    fontWeight: 800,
+    cursor: 'pointer'
+  }}
+>
+  📄 View Signed Authorization PDF
+</button>
                       )}
 
                       <button
