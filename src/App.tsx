@@ -3724,10 +3724,6 @@ const handleClientResponse = async (
     Add up to 2 photos
   </span>
 </div>
-                  )}
-                </div>
-              </div>
-            </div>
 
             <div className="form-group">
   <label className="form-label">Authorized Amount ($ USD)</label>
