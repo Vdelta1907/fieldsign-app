@@ -1013,7 +1013,7 @@ const exitOrderEditor = () => {
         ? 'Exit this revision?\n\n'
         : 'Exit this draft?\n\n') +
       'Any unsaved edits will be discarded. The last saved draft ' +
-      'will remain on your dashboard under All Orders, where you ' +
+      'will remain on your dashboard under Drafts, where you ' +
       'can choose Continue Editing Draft.' +
       (isEditingRevision
         ? '\n\nThe previous client link will remain closed.'
