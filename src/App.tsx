@@ -1339,7 +1339,32 @@ const exitOrderEditor = () => {
         .eq('status', 'draft')
         .eq('signing_token', currentSigningToken)
         .is('archived_at', null)
-        .select()
+        .select(`
+  id,
+  order_type,
+  contractor_company,
+  contractor_license,
+  contractor_phone,
+  contractor_email,
+  custom_terms,
+  project_title,
+  client_name,
+  client_phone,
+  description,
+  cost,
+  status,
+  revision_number,
+  client_response_note,
+  client_responded_at,
+  last_sent_at,
+  payment_status,
+  require_payment_upfront,
+  signing_token,
+  signed_at,
+  signed_at_utc,
+  signer_name,
+  created_at
+`)
         .maybeSingle();
 
       if (error) throw error;
@@ -1365,7 +1390,32 @@ const exitOrderEditor = () => {
           // No active client link until this draft is sent for review.
           signing_expires_at: new Date().toISOString()
         })
-        .select()
+        .select(`
+  id,
+  order_type,
+  contractor_company,
+  contractor_license,
+  contractor_phone,
+  contractor_email,
+  custom_terms,
+  project_title,
+  client_name,
+  client_phone,
+  description,
+  cost,
+  status,
+  revision_number,
+  client_response_note,
+  client_responded_at,
+  last_sent_at,
+  payment_status,
+  require_payment_upfront,
+  signing_token,
+  signed_at,
+  signed_at_utc,
+  signer_name,
+  created_at
+`)
         .single();
 
       if (error) throw error;
