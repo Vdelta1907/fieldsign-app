@@ -1,10 +1,37 @@
 import Stripe from 'npm:stripe@^22';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!);
-const appUrl = Deno.env.get('APP_URL')!;
+const stripe = new Stripe(
+  Deno.env.get('STRIPE_SECRET_KEY')!
+);
 
+const appUrl = Deno.env.get('APP_URL');
+
+if (!appUrl) {
+  throw new Error('APP_URL is not configured.');
+}
+
+const allowedOrigin = new URL(appUrl).origin;
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': allowedOrigin,
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Vary': 'Origin',
+};
+
+const jsonResponse = (
+  body: unknown,
+  status = 200,
+) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
+  });
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
