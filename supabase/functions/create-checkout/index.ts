@@ -181,19 +181,49 @@ Deno.serve(async (request) => {
       throw new Error('Stripe did not return a Checkout URL');
     }
 
-    const { error: updateError } = await admin
-      .from('orders')
-      .update({
-        stripe_checkout_session_id: session.id,
-        payment_status: 'pending',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', order.id)
-      .in('payment_status', ['pending', 'failed']);
+    const {
+  data: updatedOrder,
+  error: updateError,
+} = await admin
+  .from('orders')
+  .update({
+    stripe_checkout_session_id: session.id,
+    payment_status: 'pending',
+    updated_at: new Date().toISOString(),
+  })
+  .eq('id', order.id)
+  .eq('status', 'signed')
+  .eq('require_payment_upfront', true)
+  .in('payment_status', ['pending', 'failed'])
+  .select('id')
+  .maybeSingle();
 
-    if (updateError) {
-      throw updateError;
-    }
+if (updateError) {
+  throw updateError;
+}
+
+if (!updatedOrder) {
+  try {
+    await stripe.checkout.sessions.expire(
+      session.id,
+      {},
+      { stripeAccount },
+    );
+  } catch (expirationError) {
+    console.error(
+      'Unable to expire stale Checkout Session:',
+      expirationError,
+    );
+  }
+
+  return jsonResponse(
+    {
+      error:
+        'Payment status changed. Refresh before trying again.',
+    },
+    409,
+  );
+}
 
     return jsonResponse({
       url: session.url,
