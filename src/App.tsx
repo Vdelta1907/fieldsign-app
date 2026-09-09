@@ -2370,61 +2370,51 @@ const draftCount = orders.filter(
     o.status === 'pending' ||
     o.status === 'changes_requested'
 ).length;
+
 useEffect(() => {
-  if (!isClientMode || !currentSigningToken)Token) return;
+  if (!isClientMode || !currentSigningToken) return;
 
-  let active = = true;
+  let active = true;
 
- true;
+  const checkClientLinkState = async () => {
+    const { data, error } = await supabase.rpc(
+      'fieldsign_get_link_state',
+      {
+        p_signing_token: currentSigningToken,
+      }
+    );
 
-  const checkClientClientClientLinkState = async () => {
-       const const { data, error } = await await    await await supabase.rpc(
-           ' 'fieldsign_get_link_stateState',
-           {
-        p_signing_tokenToken_token: currentIdentifierToken,
-           }
-       );
+    if (error || !active) return;
 
- );
-
-    if (error || || !active) return;
-
-    const state state =
-      data data &&
-           typeof typeof data === ' 'object' &&
- &&
-      '      'state 'state' in data
-               ? ? data.state
-        :        : ' 'invalid';
-
-';
+    const state =
+      data &&
+      typeof data === 'object' &&
+      'state' in data
+        ? data.state
+        : 'invalid';
 
     if (state !== 'active') {
-      await await      await await loadOrderFromFromDb(signToken);
+      await loadOrderFromDb(currentSigningToken);
     }
-   };
+  };
 
-  const intervalId = window.set.set.setInterval(
-    () => void checkClientLinkLinkState(),
-    3000
-  );
-
- );
+  const intervalId = window.setInterval(() => {
+    void checkClientLinkState();
+  }, 3000);
 
   const handleWindowFocus = () => {
-    void void checkClientLinkState();
+    void checkClientLinkState();
   };
 
-  window window.addEventListener('focus', handleWindowFocus);
+  window.addEventListener('focus', handleWindowFocus);
 
-  return () () => {
-    active active = false false;
-       window.clearInterval(intervalId);
-    intervalId);
+  return () => {
+    active = false;
+    window.clearInterval(intervalId);
     window.removeEventListener('focus', handleWindowFocus);
-);
   };
-},}, [isClientMode, currentSigningToken]);
+}, [isClientMode, currentSigningToken]);
+
   const attentionCount = orders.filter(
   o => o.status === 'changes_requested' || o.status === 'declined'
 ).length;
