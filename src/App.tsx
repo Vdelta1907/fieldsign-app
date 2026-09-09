@@ -15,37 +15,47 @@ type OrderStatus =
   | 'pending'
   | 'changes_requested'
   | 'declined'
-  | 'signed';
+  | 'signed'
+  | 'cancelled';
 
 const ORDER_STATUS_META: Record<
   OrderStatus,
-  { label: string; color: string; background: string }
+  {
+    label: string;
+    color: string;
+    background: string;
+  }
 > = {
   draft: {
     label: '✎ Draft',
     color: '#cbd5e1',
-    background: 'rgba(148, 163, 184, 0.15)'
+    background: 'rgba(148, 163, 184, 0.15)',
   },
   pending: {
     label: '⏳ Awaiting Client',
     color: '#f59e0b',
-    background: 'rgba(245, 158, 11, 0.15)'
+    background: 'rgba(245, 158, 11, 0.15)',
   },
   changes_requested: {
     label: '⚠ Changes Requested',
     color: '#38bdf8',
-    background: 'rgba(56, 189, 248, 0.15)'
+    background: 'rgba(56, 189, 248, 0.15)',
   },
   declined: {
     label: '× Declined',
     color: '#f87171',
-    background: 'rgba(239, 68, 68, 0.15)'
+    background: 'rgba(239, 68, 68, 0.15)',
   },
   signed: {
     label: '✓ Signed',
     color: '#10b981',
-    background: 'rgba(16, 185, 129, 0.15)'
-  }
+    background: 'rgba(16, 185, 129, 0.15)',
+  },
+  cancelled: {
+    label: '⊘ Canceled',
+    color: '#94a3b8',
+    background: 'rgba(148, 163, 184, 0.12)',
+  },
 };
 
 interface OrderRecord {
@@ -63,9 +73,13 @@ interface OrderRecord {
   description: string;
   cost: number;
   status: OrderStatus;
+    cancelled_at?: string;
+  cancellation_reason?: string;
 revision_number?: number;
 client_response_note?: string;
 client_responded_at?: string;
+cancelled_at?: string;
+cancellation_reason?: string;
 last_sent_at?: string;
   payment_status?: string;
   require_payment_upfront?: boolean;
@@ -199,6 +213,10 @@ export default function App() {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isEditingRevision, setIsEditingRevision] = useState(false);
   const [revisionOpeningId, setRevisionOpeningId] = useState<string | null>(null);
+  const [
+  cancellingOrderId,
+  setCancellingOrderId,
+] = useState<string | null>(null);
   const [expandedHistoryOrderId, setExpandedHistoryOrderId] =
   useState<string | null>(null);
 
@@ -360,6 +378,101 @@ const signatureSubmissionIdRef =
   window.location.href =
     `sms:${cleanPhone}?body=${encodeURIComponent(bodyText)}`;
 };
+const cancelOrder = async (
+  order: OrderRecord,
+) => {
+  if (cancellingOrderId) return;
+
+  if (
+    order.status !== 'pending' &&
+    order.status !== 'changes_requested'
+  ) {
+    alert(
+      'Only Pending or Changes Requested orders can be cancelled.',
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    'Cancel this order?\n\n' +
+      'The client authorization link will be revoked immediately. ' +
+      'The order will remain preserved under All Orders as a cancelled record.',
+  );
+
+  if (!confirmed) return;
+
+  setCancellingOrderId(order.id);
+
+  try {
+    const {
+      data,
+      error,
+    } = await supabase.functions.invoke(
+      'cancel-order',
+      {
+        body: {
+          orderId: order.id,
+        },
+      },
+    );
+
+    if (error) throw error;
+
+    const cancellation = data as {
+      order_id?: string;
+      status?: string;
+      cancelled_at?: string;
+      already_cancelled?: boolean;
+    } | null;
+
+    if (
+      !cancellation ||
+      cancellation.status !== 'cancelled'
+    ) {
+      throw new Error(
+        'The cancellation could not be confirmed.',
+      );
+    }
+
+    setOrders((previous) =>
+      previous.map((existingOrder) =>
+        existingOrder.id === order.id
+          ? {
+              ...existingOrder,
+              status: 'cancelled',
+              cancelled_at:
+                cancellation.cancelled_at ||
+                new Date().toISOString(),
+              cancellation_reason:
+                'Cancelled by contractor.',
+            }
+          : existingOrder,
+      ),
+    );
+
+    alert(
+      'Order cancelled. The client authorization link is no longer active.',
+    );
+  } catch (error: unknown) {
+    console.error(
+      'Order cancellation failed:',
+      error,
+    );
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'The order could not be cancelled securely.';
+
+    alert(
+      message +
+        '\n\nRefresh the dashboard before trying again.',
+    );
+  } finally {
+    setCancellingOrderId(null);
+  }
+};
+
   
   const deleteOrderPermanently = async (orderId: string) => {
     if (!confirm("This order will be permanently removed from your dashboard. Are you sure you want to delete it?")) {  
@@ -580,7 +693,9 @@ const fetchDashboardOrders = useCallback(
   description,
   cost,
   status,
-  revision_number,
+cancelled_at,
+cancellation_reason,
+revision_number,
   client_response_note,
   client_responded_at,
   last_sent_at,
@@ -794,7 +909,11 @@ const loadOrderFromDb = async (signingToken: string) => {
         ? stateData.state
         : 'invalid';
 
-    if (state === 'changes_requested') {
+    if (state === 'cancelled') {
+  closeClientAuthorization(
+    'This authorization was canceled by the contractor and is no longer available.'
+  );
+} else if (state === 'changes_requested') {
       closeClientAuthorization(
         'Your requested changes have been recorded. This authorization link is now closed. Please wait for the contractor to send a revised order with a new link.'
       );
@@ -2225,7 +2344,12 @@ useEffect(() => {
   ? []
   : orders.filter(order => {
       if (filterTab === 'draft') return order.status === 'draft';
-      if (filterTab === 'pending') return order.status === 'pending';
+      if (filterTab === 'pending') {
+  return (
+    order.status === 'pending' ||
+    order.status === 'changes_requested'
+  );
+}
       if (filterTab === 'signed') return order.status === 'signed';
       return true;
     });
@@ -2241,7 +2365,66 @@ const draftCount = orders.filter(
     .filter(o => o.payment_status === 'paid')
     .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
   const signedCount = orders.filter(o => o.status === 'signed').length;
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
+  const pendingCount = orders.filter(
+  (o) =>
+    o.status === 'pending' ||
+    o.status === 'changes_requested'
+).length;
+useEffect(() => {
+  if (!isClientMode || !currentSigningToken)Token) return;
+
+  let active = = true;
+
+ true;
+
+  const checkClientClientClientLinkState = async () => {
+       const const { data, error } = await await    await await supabase.rpc(
+           ' 'fieldsign_get_link_stateState',
+           {
+        p_signing_tokenToken_token: currentIdentifierToken,
+           }
+       );
+
+ );
+
+    if (error || || !active) return;
+
+    const state state =
+      data data &&
+           typeof typeof data === ' 'object' &&
+ &&
+      '      'state 'state' in data
+               ? ? data.state
+        :        : ' 'invalid';
+
+';
+
+    if (state !== 'active') {
+      await await      await await loadOrderFromFromDb(signToken);
+    }
+   };
+
+  const intervalId = window.set.set.setInterval(
+    () => void checkClientLinkLinkState(),
+    3000
+  );
+
+ );
+
+  const handleWindowFocus = () => {
+    void void checkClientLinkState();
+  };
+
+  window window.addEventListener('focus', handleWindowFocus);
+
+  return () () => {
+    active active = false false;
+       window.clearInterval(intervalId);
+    intervalId);
+    window.removeEventListener('focus', handleWindowFocus);
+);
+  };
+},}, [isClientMode, currentSigningToken]);
   const attentionCount = orders.filter(
   o => o.status === 'changes_requested' || o.status === 'declined'
 ).length;
@@ -3331,14 +3514,59 @@ const handleClientResponse = async (
 </button>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() => deleteOrderPermanently(o.id)}
-                        style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
-                        title="Permanently Delete"
-                      >
-                        🗑️
-                      </button>
+                      {o.status === 'pending' ||
+o.status === 'changes_requested' ? (
+  <button
+    type="button"
+    onClick={() => cancelOrder(o)}
+    disabled={cancellingOrderId === o.id}
+    style={{
+      padding: '8px 10px',
+      borderRadius: '8px',
+      border:
+        '1px solid rgba(239, 68, 68, 0.4)',
+      background: 'rgba(239, 68, 68, 0.1)',
+      color: '#f87171',
+      fontSize: '11px',
+      fontWeight: 800,
+      cursor:
+        cancellingOrderId === o.id
+          ? 'not-allowed'
+          : 'pointer',
+      opacity:
+        cancellingOrderId === o.id
+          ? 0.65
+          : 1,
+      whiteSpace: 'nowrap',
+    }}
+    title="Cancel Order"
+  >
+    {cancellingOrderId === o.id
+      ? 'Cancelling…'
+      : '⊘ Cancel Order'}
+  </button>
+) : (
+  <button
+    type="button"
+    onClick={() =>
+      deleteOrderPermanently(o.id)
+    }
+    style={{
+      padding: '8px 10px',
+      borderRadius: '8px',
+      border:
+        '1px solid rgba(239, 68, 68, 0.3)',
+      background: 'rgba(239, 68, 68, 0.1)',
+      color: '#f87171',
+      fontSize: '11px',
+      fontWeight: 700,
+      cursor: 'pointer',
+    }}
+    title="Permanently Delete"
+  >
+    🗑️
+  </button>
+)}
                     </div>
                   </div>
                 ))}
