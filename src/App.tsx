@@ -78,8 +78,6 @@ interface OrderRecord {
 revision_number?: number;
 client_response_note?: string;
 client_responded_at?: string;
-cancelled_at?: string;
-cancellation_reason?: string;
 last_sent_at?: string;
   payment_status?: string;
   require_payment_upfront?: boolean;
