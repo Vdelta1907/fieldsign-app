@@ -4597,9 +4597,9 @@ setClientResponseNote('');
               </summary>
 
               <p style={{ marginTop: '7px' }}>
-                {orderTerms ||
-                  profile.customTerms ||
-                  DEFAULT_TERMS}
+                {isClientMode
+  ? orderTerms || DEFAULT_TERMS
+  : orderTerms || profile.customTerms || DEFAULT_TERMS}
               </p>
             </details>
           </div>
