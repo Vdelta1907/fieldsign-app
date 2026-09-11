@@ -1892,28 +1892,55 @@ newOrderSubmissionIdRef.current = null;
   setIsSubmittingSignature(true);
 
   try {
-    const { data, error } = await supabase.rpc(
-      'sign_order_v2',
-      {
-        p_token: signingToken,
-        p_signer_name: signerName.trim(),
-        p_signature_data: signature,
-        p_consent_text: CONSENT_TEXT,
-        p_user_agent: navigator.userAgent,
-        p_payment_requested: openStripe,
-        p_submission_id: submissionId
-      }
-    );
-
-    if (error) throw error;
-
-    const result = data?.[0];
-
-    if (!result?.signed_at_utc) {
-      throw new Error(
-        'The signed authorization could not be confirmed.'
-      );
+    const { data, error } = await supabase.functions.invoke(
+  'submit-signature',
+  {
+    body: {
+      signingToken,
+      signerName: signerName.trim(),
+      signatureData: signature,
+      consentText: CONSENT_TEXT,
+      paymentRequested: openStripe,
+      submissionId
     }
+  }
+);
+
+if (error) {
+  let message =
+    error.message || 'The signature could not be submitted.';
+
+  if (
+    'context' in error &&
+    error.context instanceof Response
+  ) {
+    const errorBody = await error.context
+      .clone()
+      .json()
+      .catch(() => null);
+
+    if (typeof errorBody?.error === 'string') {
+      message = errorBody.error;
+    }
+  }
+
+  throw new Error(message);
+}
+
+const result = data
+  ? {
+      signed_at_utc: data.signedAtUtc,
+      payment_status: data.paymentStatus,
+      already_recorded: data.alreadyRecorded,
+      document_hash: data.documentHash
+    }
+  : null;
+
+if (!result?.signed_at_utc) {
+  throw new Error(
+    'The signed authorization could not be confirmed.'
+  );
+}
 
     signatureSubmissionIdRef.current = null;
     setSignatureData(signature);
