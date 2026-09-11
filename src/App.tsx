@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { AuthScreen } from './components/AuthScreen';
+import OrderActivityTimeline from './OrderActivityTimeline';
 import { supabase } from './lib/supabase';
 import {
   AudioLines,
@@ -3156,6 +3157,12 @@ const handleClientResponse = async (
     </p>
   </div>
 )}
+<OrderActivityTimeline
+  key={o.id}
+  client={supabase}
+  orderId={o.id}
+  refreshKey={`${o.status}:${o.payment_status}:${o.revision_number}`}
+/>
 {(o.revision_number ?? 1) > 1 && (
   <div style={{ marginTop: '10px' }}>
     <button
