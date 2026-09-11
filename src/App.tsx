@@ -112,10 +112,23 @@ interface ContractorProfile {
   stripeAccountId: string;
   stripeChargesEnabled: boolean;
   stripeDetailsSubmitted: boolean;
+  useDefaultTerms?: boolean;
 }
 
 const DEFAULT_TERMS = "The undersigned authorizes the contractor to perform the modifications or services described above. Labor, equipment, and materials will be provided in accordance with the stated scope and payment terms. By checking the consent box and signing, the signer confirms their intent to authorize this electronic record and agrees to receive and retain it electronically.";
 const CONSENT_TEXT = 'I agree to conduct this transaction electronically, confirm that I reviewed the scope and amount, and intend my electronic signature to authorize this record.';
+
+const usesDefaultTerms = (value: ContractorProfile): boolean =>
+  value.useDefaultTerms ??
+  (
+    !value.customTerms.trim() ||
+    value.customTerms.trim() === DEFAULT_TERMS
+  );
+
+const getProfileTerms = (value: ContractorProfile): string =>
+  usesDefaultTerms(value)
+    ? DEFAULT_TERMS
+    : value.customTerms.trim();
 
 const formatTimestamp = (value?: string | null): string => {
   if (!value) return 'Not recorded';
@@ -507,47 +520,81 @@ useEffect(() => {
 ]);  
 
   const loadContractorProfile = async () => {
-    if (!session) return;
-    const { data, error } = await supabase
-      .from('contractor_profiles')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .maybeSingle();
-    if (error) {
-      console.error('Profile load failed:', error);
-      return;
-    }
-    if (!data) return;
+  if (!session) return;
 
-    saveProfile({
-      companyName: data.company_name || 'FieldSign Contractor',
-      licenseNumber: data.license_number || '',
-      phone: data.phone || '',
-      email: data.email || session.user.email || '',
-      logoDataUrl: data.logo_data_url || '',
-      customTerms: data.custom_terms || DEFAULT_TERMS,
-      requirePaymentUpfront: Boolean(data.require_payment_upfront),
-      stripeAccountId: data.stripe_account_id || '',
-      stripeChargesEnabled: Boolean(data.stripe_charges_enabled),
-      stripeDetailsSubmitted: Boolean(data.stripe_details_submitted),
-    });
-  };
+  const { data, error } = await supabase
+    .from('contractor_profiles')
+    .select('*')
+    .eq('user_id', session.user.id)
+    .maybeSingle();
 
-  const persistContractorProfile = async () => {
-    if (!session) return;
-    const { error } = await supabase.from('contractor_profiles').upsert({
-      user_id: session.user.id,
-      company_name: profile.companyName.trim() || 'FieldSign Contractor',
-      license_number: profile.licenseNumber.trim() || null,
-      phone: profile.phone.trim() || null,
-      email: profile.email.trim() || session.user.email || null,
-      logo_data_url: profile.logoDataUrl || null,
-      custom_terms: profile.customTerms.trim() || DEFAULT_TERMS,
-      require_payment_upfront: profile.requirePaymentUpfront,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
-    if (error) throw error;
-  };
+  if (error) {
+    console.error('Profile load failed:', error);
+    return;
+  }
+
+  if (!data) return;
+
+  const savedTerms = data.custom_terms ?? '';
+
+  saveProfile({
+    companyName: data.company_name || 'FieldSign Contractor',
+    licenseNumber: data.license_number || '',
+    phone: data.phone || '',
+    email: data.email || session.user.email || '',
+    logoDataUrl: data.logo_data_url || '',
+    customTerms: savedTerms,
+    useDefaultTerms:
+      typeof data.use_default_terms === 'boolean'
+        ? data.use_default_terms
+        : (
+            !savedTerms.trim() ||
+            savedTerms.trim() === DEFAULT_TERMS
+          ),
+    requirePaymentUpfront: Boolean(data.require_payment_upfront),
+    stripeAccountId: data.stripe_account_id || '',
+    stripeChargesEnabled: Boolean(data.stripe_charges_enabled),
+    stripeDetailsSubmitted: Boolean(data.stripe_details_submitted),
+  });
+};
+
+const persistContractorProfile = async () => {
+  if (!session) return;
+
+  if (
+    !usesDefaultTerms(profile) &&
+    !profile.customTerms.trim()
+  ) {
+    throw new Error(
+      'Enter custom terms or turn on Use default terms.'
+    );
+  }
+
+  const { error } = await supabase
+    .from('contractor_profiles')
+    .upsert(
+      {
+        user_id: session.user.id,
+        company_name:
+          profile.companyName.trim() || 'FieldSign Contractor',
+        license_number: profile.licenseNumber.trim() || null,
+        phone: profile.phone.trim() || null,
+        email:
+          profile.email.trim() || session.user.email || null,
+        logo_data_url: profile.logoDataUrl || null,
+
+        // Preserve the custom draft even while default terms are selected.
+        custom_terms: profile.customTerms,
+        use_default_terms: usesDefaultTerms(profile),
+
+        require_payment_upfront: profile.requirePaymentUpfront,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+
+  if (error) throw error;
+};
   const saveSettingsAndReturn = async () => {
   if (profileSaveInProgress.current) return;
 
@@ -1098,11 +1145,7 @@ const loadOrderFromDb = async (signingToken: string) => {
     setOrderContractorEmail(
       o.contractor_email || profile.email
     );
-    setOrderTerms(
-      o.custom_terms ||
-      profile.customTerms ||
-      DEFAULT_TERMS
-    );
+    setOrderTerms(o.custom_terms || DEFAULT_TERMS);
 
     setOrderRequirePaymentUpfront(
       Boolean(o.require_payment_upfront)
@@ -1518,7 +1561,7 @@ const exitOrderEditor = () => {
       contractor_license: profile.licenseNumber || null,
       contractor_phone: profile.phone || null,
       contractor_email: profile.email || null,
-      custom_terms: profile.customTerms || DEFAULT_TERMS,
+      custom_terms: getProfileTerms(profile),
       project_title: projectTitle.trim(),
       client_name: clientName.trim(),
       client_phone: clientPhone.trim(),
@@ -1689,6 +1732,13 @@ const exitOrderEditor = () => {
   }
 };
   const createOrder = async () => {
+      if (
+    !usesDefaultTerms(profile) &&
+    !profile.customTerms.trim()
+  ) {
+    alert('Enter custom terms in Settings or turn on Use default terms.');
+    return;
+  }
   const parsedCost = Number(cost);
 
   if (
@@ -1742,8 +1792,7 @@ const exitOrderEditor = () => {
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
       p_contractor_email: profile.email || null,
-      p_custom_terms:
-        profile.customTerms || DEFAULT_TERMS,
+      p_custom_terms: getProfileTerms(profile),
       p_project_title: projectTitle.trim(),
       p_client_name: clientName.trim(),
       p_client_phone: clientPhone.trim(),
@@ -1789,8 +1838,7 @@ const exitOrderEditor = () => {
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
       p_contractor_email: profile.email || null,
-      p_custom_terms:
-        profile.customTerms || DEFAULT_TERMS,
+      p_custom_terms: getProfileTerms(profile),
       p_project_title: projectTitle.trim(),
       p_client_name: clientName.trim(),
       p_client_phone: clientPhone.trim(),
@@ -2121,7 +2169,14 @@ if (!result?.signed_at_utc) {
     const dLicense = targetDoc?.license || orderContractorLicense || profile.licenseNumber;
     const dContractorPhone = targetDoc?.phone || orderContractorPhone || profile.phone;
     const dContractorEmail = targetDoc?.email || orderContractorEmail || profile.email;
-    const dTerms = targetDoc?.terms || orderTerms || profile.customTerms || DEFAULT_TERMS;
+    const dTerms = targetDoc
+  ? targetDoc.terms || DEFAULT_TERMS
+  : orderTerms ||
+    (
+      isClientMode || currentOrderId
+        ? DEFAULT_TERMS
+        : getProfileTerms(profile)
+    );
 
     const dType = targetDoc?.type || orderType;
     const dProject = targetDoc?.project || projectTitle;
@@ -2990,9 +3045,111 @@ const handleClientResponse = async (
             </div>
 
             <div className="form-group">
-              <label className="form-label">Custom Legal Authorization Terms</label>
-              <textarea rows={3} value={profile.customTerms} onChange={(e) => saveProfile({ ...profile, customTerms: e.target.value })} />
-            </div>
+  <label className="form-label">
+    Authorization Terms
+  </label>
+
+  <button
+    type="button"
+    role="switch"
+    aria-checked={usesDefaultTerms(profile)}
+    aria-label="Use default terms"
+    onClick={() =>
+      saveProfile({
+        ...profile,
+        useDefaultTerms: !usesDefaultTerms(profile)
+      })
+    }
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+      width: '100%',
+      minHeight: '44px',
+      marginBottom: '10px',
+      padding: '10px 12px',
+      borderRadius: '10px',
+      border: usesDefaultTerms(profile)
+        ? '1px solid #f59e0b'
+        : '1px solid #334155',
+      background: usesDefaultTerms(profile)
+        ? 'rgba(245, 158, 11, 0.1)'
+        : '#0b1120',
+      color: '#e2e8f0',
+      fontWeight: 700,
+      cursor: 'pointer'
+    }}
+  >
+    <span>Use default terms</span>
+
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'relative',
+        display: 'inline-block',
+        flexShrink: 0,
+        width: '42px',
+        height: '24px',
+        borderRadius: '999px',
+        background: usesDefaultTerms(profile)
+          ? '#f59e0b'
+          : '#475569'
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: '3px',
+          left: usesDefaultTerms(profile) ? '21px' : '3px',
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          background: '#fff'
+        }}
+      />
+    </span>
+  </button>
+
+  <textarea
+    rows={5}
+    maxLength={20000}
+    aria-label={
+      usesDefaultTerms(profile)
+        ? 'Default authorization terms'
+        : 'Custom authorization terms'
+    }
+    readOnly={usesDefaultTerms(profile)}
+    value={
+      usesDefaultTerms(profile)
+        ? DEFAULT_TERMS
+        : profile.customTerms
+    }
+    onChange={(e) =>
+      saveProfile({
+        ...profile,
+        useDefaultTerms: false,
+        customTerms: e.target.value
+      })
+    }
+    placeholder="Enter your custom authorization terms…"
+  />
+
+  <p
+    style={{
+      marginTop: '7px',
+      color: '#94a3b8',
+      fontSize: '12px',
+      lineHeight: 1.5
+    }}
+  >
+    {usesDefaultTerms(profile)
+      ? 'Default terms are selected. Your custom draft is preserved.'
+      : 'Custom terms are selected. Turn on the switch to restore the default wording.'}
+    {' '}Save your settings to keep this choice across devices.
+    {' '}Existing signed orders are unchanged.
+  </p>
+</div>
 
             <button
   type="button"
@@ -4697,7 +4854,7 @@ setClientResponseNote('');
               <p style={{ marginTop: '7px' }}>
                 {isClientMode
   ? orderTerms || DEFAULT_TERMS
-  : orderTerms || profile.customTerms || DEFAULT_TERMS}
+  : orderTerms || getProfileTerms(profile)}
               </p>
             </details>
           </div>
