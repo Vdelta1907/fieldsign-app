@@ -598,15 +598,56 @@ const persistContractorProfile = async () => {
   const saveSettingsAndReturn = async () => {
   if (profileSaveInProgress.current) return;
 
+  if (
+    !usesDefaultTerms(profile) &&
+    !profile.customTerms.trim()
+  ) {
+    alert(
+      'Settings weren’t saved because custom terms are selected ' +
+      'but the text field is empty. Enter your custom terms or ' +
+      'turn on “Use default terms,” then save again.'
+    );
+    return;
+  }
+
+  if (!session) {
+    alert(
+      'Settings weren’t saved because you aren’t signed in. ' +
+      'Sign in again, then return to Settings and save.'
+    );
+    return;
+  }
+
   profileSaveInProgress.current = true;
   setIsSavingProfile(true);
 
   try {
     await persistContractorProfile();
     setView('dashboard');
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Settings save failed:', error);
-    alert('Settings could not be saved. Please try again.');
+
+    const message =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof error.message === 'string'
+        ? error.message
+        : '';
+
+    const isNetworkError =
+      /failed to fetch|fetch failed|load failed|network|timeout|timed out/i
+        .test(message);
+
+    alert(
+      isNetworkError
+        ? 'We couldn’t confirm that your settings were saved because ' +
+          'the connection failed or timed out. Check your connection, ' +
+          'then try saving again.'
+        : 'We couldn’t confirm that your settings were saved. ' +
+          'Your entries remain on this screen. Try saving again; ' +
+          'if the problem continues, contact support.'
+    );
   } finally {
     profileSaveInProgress.current = false;
     setIsSavingProfile(false);
