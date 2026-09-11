@@ -587,14 +587,108 @@ useEffect(() => {
     }
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => saveProfile({ ...profile, logoDataUrl: reader.result as string });
-      reader.readAsDataURL(file);
+  const handleLogoUpload = async (
+  e: React.ChangeEvent<HTMLInputElement>
+) => {
+  const input = e.currentTarget;
+  const file = input.files?.[0];
+
+  if (!file) return;
+
+  input.disabled = true;
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>(
+      (resolve, reject) => {
+        const img = new Image();
+
+        img.onload = () => resolve(img);
+        img.onerror = () =>
+          reject(
+            new Error(
+              'This image could not be opened. Please use a PNG, JPEG, or WebP logo.'
+            )
+          );
+
+        img.src = objectUrl;
+      }
+    );
+
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error('The logo has invalid image dimensions.');
     }
-  };
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Your browser could not process the logo.');
+    }
+
+    let maxDimension = 512;
+    let logoDataUrl = '';
+
+    while (maxDimension >= 128) {
+      const scale = Math.min(
+        1,
+        maxDimension / image.naturalWidth,
+        maxDimension / image.naturalHeight
+      );
+
+      canvas.width = Math.max(
+        1,
+        Math.round(image.naturalWidth * scale)
+      );
+      canvas.height = Math.max(
+        1,
+        Math.round(image.naturalHeight * scale)
+      );
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        image,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+      const candidate = canvas.toDataURL('image/png');
+
+      // Data URLs are ASCII, so length matches their byte size.
+      if (
+        candidate.startsWith('data:image/png;base64,') &&
+        candidate.length <= 1_400_000
+      ) {
+        logoDataUrl = candidate;
+        break;
+      }
+
+      maxDimension = Math.floor(maxDimension * 0.75);
+    }
+
+    if (!logoDataUrl) {
+      throw new Error(
+        'The logo is still too large. Please choose a simpler image.'
+      );
+    }
+
+    await saveProfile({ ...profile, logoDataUrl });
+  } catch (error: unknown) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : 'The logo could not be uploaded. Please try again.'
+    );
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    input.value = '';
+    input.disabled = false;
+  }
+};
 
   const processImageUpload = (file: File, callback: (base64: string) => void) => {
     const reader = new FileReader();
@@ -1731,8 +1825,7 @@ const exitOrderEditor = () => {
 setIsEditingRevision(false);
 newOrderSubmissionIdRef.current = null;
     revisionPublishSubmissionIdRef.current = null;
-    revisionPublishSubmissionIdRef.current = null;
-    await fetchDashboardOrders();
+     await fetchDashboardOrders();
     setView('dashboard');
 
     if (
@@ -1748,14 +1841,19 @@ newOrderSubmissionIdRef.current = null;
         savedOrder.order_type
       );
     }
-  } catch (err: unknown) {
+    } catch (err: unknown) {
     console.error('Database save error:', err);
 
-    alert(
-      err instanceof Error
+    const message =
+      typeof err === 'object' &&
+      err !== null &&
+      'message' in err &&
+      typeof err.message === 'string' &&
+      err.message.trim()
         ? err.message
-        : 'Failed to save the order.'
-    );
+        : 'Failed to save the order. Please try again.';
+
+    alert(message);
   } finally {
     orderSubmissionInProgress.current = false;
     setIsSaving(false);
