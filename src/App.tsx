@@ -181,10 +181,10 @@ export default function App() {
       try { return JSON.parse(saved); } catch {}
     }
     return {
-      companyName: 'FieldSign',
-      licenseNumber: 'FS-VA-00000',
+      companyName: 'SignForth',
+      licenseNumber: 'SF-VA-00000',
       phone: '(000) 000-0000',
-      email: 'info@fieldsign.com',
+      email: 'info@example.com',
       logoDataUrl: '',
       customTerms: DEFAULT_TERMS,
       requirePaymentUpfront: false,
@@ -538,7 +538,7 @@ useEffect(() => {
   const savedTerms = data.custom_terms ?? '';
 
   saveProfile({
-    companyName: data.company_name || 'FieldSign Contractor',
+    companyName: data.company_name || 'SignForth Contractor',
     licenseNumber: data.license_number || '',
     phone: data.phone || '',
     email: data.email || session.user.email || '',
@@ -576,7 +576,7 @@ const persistContractorProfile = async () => {
       {
         user_id: session.user.id,
         company_name:
-          profile.companyName.trim() || 'FieldSign Contractor',
+          profile.companyName.trim() || 'SignForth Contractor',
         license_number: profile.licenseNumber.trim() || null,
         phone: profile.phone.trim() || null,
         email:
@@ -653,27 +653,112 @@ const persistContractorProfile = async () => {
     setIsSavingProfile(false);
   }
 };
-  const connectStripe = async () => {
-    setIsConnectingStripe(true);
-    try {
-      await persistContractorProfile();
-      const { data, error } = await supabase.functions.invoke('stripe-connect-onboard');
-      if (error) throw error;
-      if (data?.status === 'connected') {
-        await loadContractorProfile();
-        alert('Stripe is connected and ready to accept payments.');
-      } else if (data?.url) {
-        window.location.assign(data.url);
-      } else {
-        throw new Error('Stripe onboarding did not return a secure link.');
-      }
-    } catch (error) {
-      console.error('Stripe connection failed:', error);
-      alert('We could not open Stripe onboarding. Please try again.');
-    } finally {
-      setIsConnectingStripe(false);
+  const stripeConnectInProgress = useRef(false);
+
+const connectStripe = async () => {
+  if (stripeConnectInProgress.current) return;
+
+  const continueToStripe = window.confirm(
+    'You’re leaving SignForth and continuing to Stripe. ' +
+    'On Stripe’s website, you can complete payment setup or ' +
+    'sign in to manage your Stripe account. ' +
+    'If you have multiple Stripe accounts, select the account ' +
+    'connected to SignForth.\n\nContinue to Stripe?'
+  );
+
+  if (!continueToStripe) return;
+
+  stripeConnectInProgress.current = true;
+  setIsConnectingStripe(true);
+
+  try {
+    if (!session) {
+      throw new Error(
+        'Please sign in to SignForth again before opening Stripe.'
+      );
     }
-  };
+
+    // New connections need a saved contractor profile.
+    // Managing an existing connection does not save unrelated edits.
+    if (!profile.stripeAccountId) {
+      await persistContractorProfile();
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'stripe-connect-onboard'
+    );
+
+    if (error) {
+      let message =
+        'Stripe could not be opened. Please try again.';
+
+      if (
+        'context' in error &&
+        error.context instanceof Response
+      ) {
+        if (error.context.status === 401) {
+          message =
+            'Your session could not be verified. Sign in again, ' +
+            'then try opening Stripe.';
+        } else {
+          const body = await error.context
+            .clone()
+            .json()
+            .catch(() => null);
+
+          if (typeof body?.error === 'string') {
+            message = `${body.error}. Please try again.`;
+          }
+        }
+      } else {
+        message =
+          'We couldn’t reach Stripe setup. Check your connection, ' +
+          'then try again.';
+      }
+
+      throw new Error(message);
+    }
+
+    if (typeof data?.url !== 'string') {
+      throw new Error(
+        'A Stripe destination was not returned. Please try again.'
+      );
+    }
+
+    const destination = new URL(data.url);
+
+    const isStripeHost =
+      destination.hostname === 'stripe.com' ||
+      destination.hostname.endsWith('.stripe.com');
+
+    if (
+      destination.protocol !== 'https:' ||
+      !isStripeHost ||
+      destination.username ||
+      destination.password ||
+      destination.port
+    ) {
+      throw new Error(
+        'The Stripe destination could not be verified. ' +
+        'Please contact support if this continues.'
+      );
+    }
+
+    window.location.assign(destination.href);
+  } catch (error: unknown) {
+    console.error('Stripe connection failed:', error);
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : 'Stripe could not be opened. Please try again; ' +
+          'if the problem continues, contact support.'
+    );
+  } finally {
+    stripeConnectInProgress.current = false;
+    setIsConnectingStripe(false);
+  }
+};
 
   const handleLogoUpload = async (
   e: React.ChangeEvent<HTMLInputElement>
@@ -2966,15 +3051,22 @@ const handleClientResponse = async (
                   ? 'Client payments are deposited directly into your connected Stripe account.'
                   : 'Connect your own Stripe account before offering payment during client sign-off.'}
               </p>
-              <button
-                type="button"
-                onClick={() => void connectStripe()}
-                disabled={isConnectingStripe}
-                className="btn-secondary"
-                style={{ marginTop: 0 }}
-              >
-                {isConnectingStripe ? 'Opening Stripe…' : profile.stripeChargesEnabled ? 'Review Stripe connection' : 'Connect with Stripe'}
-              </button>
+ <button
+  type="button"
+  onClick={() => void connectStripe()}
+  disabled={isConnectingStripe}
+  className="btn-secondary"
+  style={{ marginTop: 0 }}
+>
+  {isConnectingStripe
+    ? 'Opening Stripe…'
+    : profile.stripeChargesEnabled &&
+        profile.stripeDetailsSubmitted
+      ? 'Manage Stripe account'
+      : profile.stripeAccountId
+        ? 'Continue Stripe setup'
+        : 'Connect with Stripe'}
+</button>
               <div
   style={{
     display: 'flex',
