@@ -675,7 +675,10 @@ const connectStripe = async () => {
    * Waiting until after the Edge Function responds can cause
    * mobile browsers to block the new window.
    */
-  const stripeWindow = window.open('about:blank', '_blank');
+  const stripeWindow = window.open(
+  `${window.location.origin}/stripe-opening.html`,
+  '_blank'
+);
 
   if (!stripeWindow) {
     alert(
@@ -686,73 +689,6 @@ const connectStripe = async () => {
   }
 
   stripeWindow.opener = null;
-
-stripeWindow.document.open();
-stripeWindow.document.write(`
-  <!doctype html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1"
-      />
-      <meta name="theme-color" content="#0f172a" />
-      <title>Opening Stripe…</title>
-
-      <style>
-        * {
-          box-sizing: border-box;
-        }
-
-        html,
-        body {
-          width: 100%;
-          min-height: 100%;
-          margin: 0;
-          background: #0f172a;
-        }
-
-        body {
-          min-height: 100vh;
-          min-height: 100dvh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 32px;
-          color: #f59e0b;
-          font-family:
-            system-ui,
-            -apple-system,
-            BlinkMacSystemFont,
-            "Segoe UI",
-            sans-serif;
-          text-align: center;
-        }
-
-        .stripe-loading-message {
-          width: 100%;
-          max-width: 520px;
-          font-size: clamp(24px, 7vw, 32px);
-          font-weight: 800;
-          line-height: 1.3;
-          letter-spacing: -0.02em;
-        }
-      </style>
-    </head>
-
-    <body>
-      <main
-        class="stripe-loading-message"
-        role="status"
-        aria-live="polite"
-      >
-        Opening Stripe securely…
-      </main>
-    </body>
-  </html>
-`);
-stripeWindow.document.close();
 
   stripeConnectInProgress.current = true;
   setIsConnectingStripe(true);
