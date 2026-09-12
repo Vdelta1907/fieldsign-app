@@ -654,22 +654,52 @@ const persistContractorProfile = async () => {
   }
 };
   const stripeConnectInProgress = useRef(false);
+  const [stripeLaunchStatus, setStripeLaunchStatus] =
+  useState<'idle' | 'opening' | 'opened'>('idle');
 
 const connectStripe = async () => {
   if (stripeConnectInProgress.current) return;
 
   const continueToStripe = window.confirm(
     'You’re leaving SignForth and continuing to Stripe. ' +
-    'On Stripe’s website, you can complete payment setup or ' +
-    'sign in to manage your Stripe account. ' +
-    'If you have multiple Stripe accounts, select the account ' +
-    'connected to SignForth.\n\nContinue to Stripe?'
+      'On Stripe’s website, you can complete payment setup or ' +
+      'sign in to manage your Stripe account. ' +
+      'If you have multiple Stripe accounts, select the account ' +
+      'connected to SignForth.\n\nContinue to Stripe?'
   );
 
   if (!continueToStripe) return;
 
+  /*
+   * Open the new window while the original tap is still active.
+   * Waiting until after the Edge Function responds can cause
+   * mobile browsers to block the new window.
+   */
+  const stripeWindow = window.open('about:blank', '_blank');
+
+  if (!stripeWindow) {
+    alert(
+      'Stripe could not open in a separate browser window. ' +
+        'Allow pop-ups for SignForth, then try again.'
+    );
+    return;
+  }
+
+  stripeWindow.opener = null;
+  stripeWindow.document.title = 'Opening Stripe…';
+  stripeWindow.document.body.textContent =
+    'Opening Stripe securely…';
+  stripeWindow.document.body.style.cssText =
+    'margin:0;min-height:100vh;display:flex;' +
+    'align-items:center;justify-content:center;' +
+    'background:#0f172a;color:#f8fafc;' +
+    'font-family:system-ui,-apple-system,sans-serif;' +
+    'font-size:18px;font-weight:700;text-align:center;' +
+    'padding:24px;box-sizing:border-box;';
+
   stripeConnectInProgress.current = true;
   setIsConnectingStripe(true);
+  setStripeLaunchStatus('opening');
 
   try {
     if (!session) {
@@ -740,19 +770,23 @@ const connectStripe = async () => {
     ) {
       throw new Error(
         'The Stripe destination could not be verified. ' +
-        'Please contact support if this continues.'
+          'Please contact support if this continues.'
       );
     }
 
-    window.location.assign(destination.href);
+    stripeWindow.location.replace(destination.href);
+    setStripeLaunchStatus('opened');
   } catch (error: unknown) {
+    stripeWindow.close();
+    setStripeLaunchStatus('idle');
+
     console.error('Stripe connection failed:', error);
 
     alert(
       error instanceof Error
         ? error.message
         : 'Stripe could not be opened. Please try again; ' +
-          'if the problem continues, contact support.'
+            'if the problem continues, contact support.'
     );
   } finally {
     stripeConnectInProgress.current = false;
@@ -3058,14 +3092,16 @@ const handleClientResponse = async (
   className="btn-secondary"
   style={{ marginTop: 0 }}
 >
-  {isConnectingStripe
+  {stripeLaunchStatus === 'opening'
     ? 'Opening Stripe…'
-    : profile.stripeChargesEnabled &&
-        profile.stripeDetailsSubmitted
-      ? 'Manage Stripe account'
-      : profile.stripeAccountId
-        ? 'Continue Stripe setup'
-        : 'Connect with Stripe'}
+    : stripeLaunchStatus === 'opened'
+      ? '✓ Stripe opened in browser'
+      : profile.stripeChargesEnabled &&
+          profile.stripeDetailsSubmitted
+        ? 'Manage Stripe account'
+        : profile.stripeAccountId
+          ? 'Continue Stripe setup'
+          : 'Connect with Stripe'}
 </button>
               <div
   style={{
