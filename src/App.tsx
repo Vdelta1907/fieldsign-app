@@ -686,16 +686,29 @@ const connectStripe = async () => {
   }
 
   stripeWindow.opener = null;
-  stripeWindow.document.title = 'Opening Stripe…';
-  stripeWindow.document.body.textContent =
-    'Opening Stripe securely…';
-  stripeWindow.document.body.style.cssText =
-    'margin:0;min-height:100vh;display:flex;' +
-    'align-items:center;justify-content:center;' +
-    'background:#0f172a;color:#f8fafc;' +
-    'font-family:system-ui,-apple-system,sans-serif;' +
-    'font-size:18px;font-weight:700;text-align:center;' +
-    'padding:24px;box-sizing:border-box;';
+stripeWindow.document.title = 'Opening Stripe…';
+
+const viewport = stripeWindow.document.createElement('meta');
+viewport.name = 'viewport';
+viewport.content = 'width=device-width, initial-scale=1';
+stripeWindow.document.head.appendChild(viewport);
+
+stripeWindow.document.documentElement.lang = 'en';
+stripeWindow.document.documentElement.style.background =
+  '#0f172a';
+
+stripeWindow.document.body.textContent =
+  'Opening Stripe securely…';
+
+stripeWindow.document.body.setAttribute('role', 'status');
+
+stripeWindow.document.body.style.cssText =
+  'margin:0;min-height:100vh;min-height:100dvh;' +
+  'display:flex;align-items:center;justify-content:center;' +
+  'background:#0f172a;color:#f59e0b;' +
+  'font-family:system-ui,-apple-system,sans-serif;' +
+  'font-size:28px;font-weight:800;line-height:1.4;' +
+  'text-align:center;padding:32px;box-sizing:border-box;';
 
   stripeConnectInProgress.current = true;
   setIsConnectingStripe(true);
