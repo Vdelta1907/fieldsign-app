@@ -196,19 +196,25 @@ export function AuthScreen({
         : 'Enter your email and password to access your dashboard.';
 
   const passwordToggleStyle: React.CSSProperties = {
-    flexShrink: 0,
-    width: '38px',
-    height: '38px',
-    padding: 0,
-    margin: 0,
-    border: 0,
-    background: 'transparent',
-    color: '#94a3b8',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
+  position: 'absolute',
+  top: '50%',
+  right: '6px',
+  left: 'auto',
+  transform: 'translateY(-50%)',
+  width: '44px',
+  height: '44px',
+  padding: 0,
+  margin: 0,
+  border: 0,
+  borderRadius: '8px',
+  background: 'transparent',
+  color: '#94a3b8',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1,
+};
 
   return (
     <main className="auth-shell">
@@ -368,43 +374,37 @@ export function AuthScreen({
                       : 'Password'}
                   </label>
 
-                  <div className="auth-input-wrap">
+                  <div
+  className="auth-input-wrap"
+  style={{ position: 'relative' }}
+>
                     <LockKeyhole
                       size={17}
                       aria-hidden="true"
                     />
 
                     <input
-                      id="contractorPassword"
-                      type={
-                        showPassword
-                          ? 'text'
-                          : 'password'
-                      }
-                      autoComplete={
-                        recoveryMode ||
-                        mode === 'sign-up'
-                          ? 'new-password'
-                          : 'current-password'
-                      }
-                      value={password}
-                      onChange={(event) =>
-                        setPassword(event.target.value)
-                      }
-                      placeholder="At least 8 characters"
-                      minLength={
-                        mode === 'sign-in'
-                          ? undefined
-                          : 8
-                      }
-                      aria-describedby={
-                        requiresPasswordConfirmation
-                          ? 'password-match-status'
-                          : undefined
-                      }
-                      required
-                    />
-
+  id="contractorPassword"
+  type={showPassword ? 'text' : 'password'}
+  autoComplete={
+    recoveryMode || mode === 'sign-up'
+      ? 'new-password'
+      : 'current-password'
+  }
+  value={password}
+  onChange={(event) =>
+    setPassword(event.target.value)
+  }
+  placeholder="At least 8 characters"
+  minLength={mode === 'sign-in' ? undefined : 8}
+  aria-describedby={
+    requiresPasswordConfirmation
+      ? 'password-match-status'
+      : undefined
+  }
+  style={{ paddingRight: '56px' }}
+  required
+/>
                     <button
                       type="button"
                       onClick={() =>
@@ -424,11 +424,23 @@ export function AuthScreen({
                         <EyeOff
                           size={19}
                           aria-hidden="true"
+                          style={{
+  position: 'static',
+  transform: 'none',
+  margin: 0,
+  flexShrink: 0,
+}}
                         />
                       ) : (
                         <Eye
                           size={19}
                           aria-hidden="true"
+                          style={{
+  position: 'static',
+  transform: 'none',
+  margin: 0,
+  flexShrink: 0,
+}}
                         />
                       )}
                     </button>
@@ -445,35 +457,34 @@ export function AuthScreen({
                     Confirm password
                   </label>
 
-                  <div className="auth-input-wrap">
+                 <div
+  className="auth-input-wrap"
+  style={{ position: 'relative' }}
+>
                     <LockKeyhole
                       size={17}
                       aria-hidden="true"
                     />
 
                     <input
-                      id="confirmedPassword"
-                      type={
-                        showConfirmedPassword
-                          ? 'text'
-                          : 'password'
-                      }
-                      autoComplete="new-password"
-                      value={confirmedPassword}
-                      onChange={(event) =>
-                        setConfirmedPassword(
-                          event.target.value,
-                        )
-                      }
-                      placeholder="Enter it again"
-                      minLength={8}
-                      aria-invalid={
-                        hasConfirmation &&
-                        !passwordsMatch
-                      }
-                      aria-describedby="password-match-status"
-                      required
-                    />
+  id="confirmedPassword"
+  type={
+    showConfirmedPassword ? 'text' : 'password'
+  }
+  autoComplete="new-password"
+  value={confirmedPassword}
+  onChange={(event) =>
+    setConfirmedPassword(event.target.value)
+  }
+  placeholder="Enter it again"
+  minLength={8}
+  aria-invalid={
+    hasConfirmation && !passwordsMatch
+  }
+  aria-describedby="password-match-status"
+  style={{ paddingRight: '56px' }}
+  required
+/>
 
                     <button
                       type="button"
@@ -496,11 +507,23 @@ export function AuthScreen({
                         <EyeOff
                           size={19}
                           aria-hidden="true"
+                          style={{
+  position: 'static',
+  transform: 'none',
+  margin: 0,
+  flexShrink: 0,
+}}
                         />
                       ) : (
                         <Eye
                           size={19}
                           aria-hidden="true"
+                          style={{
+  position: 'static',
+  transform: 'none',
+  margin: 0,
+  flexShrink: 0,
+}}
                         />
                       )}
                     </button>
