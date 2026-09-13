@@ -169,6 +169,17 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [
+  emailVerificationStatus,
+  setEmailVerificationStatus
+] = useState<
+  'none' | 'processing' | 'verified' | 'error'
+>('none');
+
+const [
+  emailVerificationMessage,
+  setEmailVerificationMessage
+] = useState('');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
@@ -917,9 +928,15 @@ const connectStripe = async () => {
     reader.readAsDataURL(file);
   };
   useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(
+    window.location.search
+  );
+
   const signingToken = params.get('sign');
-  const passwordRecovery = params.get('reset-password') === '1';
+  const passwordRecovery =
+    params.get('reset-password') === '1';
+  const emailVerificationReturn =
+    params.get('email-verified') === '1';
 
   if (signingToken) {
     setIsClientMode(true);
@@ -930,42 +947,284 @@ const connectStripe = async () => {
   }
 
   setIsClientMode(false);
-  setIsPasswordRecovery(passwordRecovery);
 
-  void supabase.auth.getSession().then(({ data }) => {
-    setSession(data.session);
-    setAuthReady(true);
-  });
+  /*
+   * A verification link creates a temporary Supabase session.
+   * Handle and close that session before the contractor
+   * dashboard is allowed to render.
+   */
+  if (emailVerificationReturn) {
+    setIsPasswordRecovery(false);
+    setEmailVerificationStatus('processing');
+    setAuthReady(false);
 
-  const { data: authListener } = supabase.auth.onAuthStateChange(
-    (event, nextSession) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setIsPasswordRecovery(true);
+    let cancelled = false;
+
+    const completeEmailVerification = async () => {
+      const errorDescription =
+        params.get('error_description');
+
+      if (errorDescription) {
+        if (cancelled) return;
+
+        setSession(null);
+        setEmailVerificationStatus('error');
+        setEmailVerificationMessage(
+          decodeURIComponent(
+            errorDescription.replace(/\+/g, ' ')
+          )
+        );
+        setAuthReady(true);
+        return;
       }
 
-      setSession(nextSession);
+      const {
+        data: { session: verificationSession },
+        error: sessionError
+      } = await supabase.auth.getSession();
+
+      if (cancelled) return;
+
+      if (sessionError || !verificationSession) {
+        setSession(null);
+        setEmailVerificationStatus('error');
+        setEmailVerificationMessage(
+          'This verification link is invalid or has expired. ' +
+            'Return to login and request a new verification email.'
+        );
+        setAuthReady(true);
+        return;
+      }
+
+      if (
+        !verificationSession.user.email_confirmed_at
+      ) {
+        setSession(null);
+        setEmailVerificationStatus('error');
+        setEmailVerificationMessage(
+          'Your email address could not be verified. ' +
+            'Return to login and request a new verification email.'
+        );
+        setAuthReady(true);
+        return;
+      }
+
+      /*
+       * End only the session created on this device by the
+       * verification link. Other signed-in devices remain active.
+       */
+      const { error: signOutError } =
+        await supabase.auth.signOut({
+          scope: 'local'
+        });
+
+      if (cancelled) return;
+
+      if (signOutError) {
+        console.error(
+          'Verification session cleanup failed:',
+          signOutError
+        );
+
+        setSession(null);
+        setEmailVerificationStatus('error');
+        setEmailVerificationMessage(
+          'Your email was verified, but SignForth could not ' +
+            'finish securing this browser session. Refresh the ' +
+            'page before signing in.'
+        );
+        setAuthReady(true);
+        return;
+      }
+
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname
+      );
+
+      setSession(null);
+      setEmailVerificationMessage('');
+      setEmailVerificationStatus('verified');
       setAuthReady(true);
-    },
+    };
+
+    void completeEmailVerification();
+
+    return () => {
+      cancelled = true;
+    };
+  }
+
+  setEmailVerificationStatus('none');
+  setEmailVerificationMessage('');
+  setIsPasswordRecovery(passwordRecovery);
+
+  void supabase.auth.getSession().then(
+    ({ data, error }) => {
+      if (error) {
+        console.error(
+          'Initial session load failed:',
+          error
+        );
+      }
+
+      setSession(data.session);
+      setAuthReady(true);
+    }
   );
 
-  return () => authListener.subscription.unsubscribe();
-}, []);
-  
-  // Dashboard request tracking prevents older responses from
-// overwriting newer data or repopulating a signed-out account.
-const dashboardRequestId = useRef(0);
-const dashboardUserId = session?.user.id;
+  const { data: authListener } =
+    supabase.auth.onAuthStateChange(
+      (event, nextSession) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+        }
 
-const fetchDashboardOrders = useCallback(
-  async (silent = false): Promise<boolean> => {
-    if (!dashboardUserId || isClientMode) return false;
-
-    const requestId = ++dashboardRequestId.current;
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(
-      () => controller.abort(),
-      12_000
+        setSession(nextSession);
+        setAuthReady(true);
+      }
     );
+
+  return () =>
+    authListener.subscription.unsubscribe();
+}, []);
+useEffect(() => {
+  if (isClientMode || !session) return;
+
+  let cancelled = false;
+  let validationInProgress = false;
+  let sessionEnded = false;
+
+  const validateActiveSession = async () => {
+    if (
+      cancelled ||
+      sessionEnded ||
+      validationInProgress
+    ) {
+      return;
+    }
+
+    validationInProgress = true;
+
+    try {
+      /*
+       * Global logout revokes the account's refresh
+       * sessions. Requesting a fresh session lets this
+       * device discover that its session was revoked.
+       */
+      const { data, error } =
+        await supabase.auth.refreshSession();
+
+      if (cancelled || sessionEnded) return;
+
+      const sessionWasRevoked =
+        (!data.session && !error) ||
+        error?.status === 400 ||
+        error?.status === 401;
+
+      if (sessionWasRevoked) {
+        sessionEnded = true;
+
+        const { error: localSignOutError } =
+          await supabase.auth.signOut({
+            scope: 'local'
+          });
+
+        if (localSignOutError) {
+          console.error(
+            'Local revoked-session cleanup failed:',
+            localSignOutError
+          );
+        }
+
+        if (cancelled) return;
+
+        setSession(null);
+        setOrders([]);
+        setIsAccountMenuOpen(false);
+        setView('dashboard');
+
+        alert(
+          'Your SignForth session is no longer active. ' +
+            'This account may have been signed out on another ' +
+            'device. Sign in again to continue.'
+        );
+
+        return;
+      }
+
+      /*
+       * A temporary connection failure must not sign the
+       * contractor out. Keep the current session and retry
+       * when the app is focused again.
+       */
+      if (error) {
+        console.warn(
+          'Active session check could not be completed:',
+          error
+        );
+        return;
+      }
+
+      if (data.session) {
+        setSession(data.session);
+      }
+    } finally {
+      validationInProgress = false;
+    }
+  };
+
+  const handleWindowFocus = () => {
+    void validateActiveSession();
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      void validateActiveSession();
+    }
+  };
+
+  window.addEventListener(
+    'focus',
+    handleWindowFocus
+  );
+
+  document.addEventListener(
+    'visibilitychange',
+    handleVisibilityChange
+  );
+
+  /*
+   * This covers a second device that stays continuously
+   * open and focused. Focus and visibility checks usually
+   * detect the logout sooner.
+   */
+  const validationInterval = window.setInterval(
+    () => {
+      if (document.visibilityState === 'visible') {
+        void validateActiveSession();
+      }
+    },
+    5 * 60 * 1000
+  );
+
+  return () => {
+    cancelled = true;
+
+    window.removeEventListener(
+      'focus',
+      handleWindowFocus
+    );
+
+    document.removeEventListener(
+      'visibilitychange',
+      handleVisibilityChange
+    );
+
+    window.clearInterval(validationInterval);
+  };
+}, [isClientMode, session?.user.id]);
 
     if (!silent) setIsLoadingOrders(true);
 
@@ -2742,12 +3001,140 @@ useEffect(() => {
   };
 }, [isClientMode, currentSigningToken]);
 
-  const attentionCount = orders.filter(
-  o => o.status === 'changes_requested' || o.status === 'declined'
-).length;
-  const paidCount = orders.filter(o => o.payment_status === 'paid').length;
   if (!isClientMode && !authReady) {
-  return <div className="app-loading" role="status">Opening FieldSign…</div>;
+  return (
+    <div className="app-loading" role="status">
+      {emailVerificationStatus === 'processing'
+        ? 'Verifying your email…'
+        : 'Opening SignForth…'}
+    </div>
+  );
+}
+
+if (
+  !isClientMode &&
+  emailVerificationStatus === 'verified'
+) {
+  return (
+    <main className="auth-shell">
+      <section
+        className="auth-card"
+        aria-labelledby="verification-title"
+      >
+        <div
+          className="auth-mark"
+          aria-hidden="true"
+          style={{
+            fontSize: '27px',
+            fontWeight: 900,
+            color: '#0f172a',
+          }}
+        >
+          ✓
+        </div>
+
+        <span className="sub-tag">
+          SignForth Contractor Portal
+        </span>
+
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ textAlign: 'center' }}
+        >
+          <h1 id="verification-title">
+            Email verified
+          </h1>
+
+          <p>
+            Your email address has been verified
+            successfully. You can now sign in to your
+            SignForth account.
+          </p>
+
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              setEmailVerificationStatus('none');
+              setEmailVerificationMessage('');
+
+              window.history.replaceState(
+                {},
+                document.title,
+                window.location.pathname
+              );
+            }}
+            style={{ marginTop: '18px' }}
+          >
+            Go to Login
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+if (
+  !isClientMode &&
+  emailVerificationStatus === 'error'
+) {
+  return (
+    <main className="auth-shell">
+      <section
+        className="auth-card"
+        aria-labelledby="verification-error-title"
+      >
+        <div
+          className="auth-mark"
+          aria-hidden="true"
+          style={{
+            fontSize: '25px',
+            fontWeight: 900,
+            color: '#0f172a',
+          }}
+        >
+          !
+        </div>
+
+        <span className="sub-tag">
+          SignForth Contractor Portal
+        </span>
+
+        <div
+          role="alert"
+          style={{ textAlign: 'center' }}
+        >
+          <h1 id="verification-error-title">
+            Verification link unavailable
+          </h1>
+
+          <p>
+            {emailVerificationMessage ||
+              'This verification link is invalid or has expired.'}
+          </p>
+
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              setEmailVerificationStatus('none');
+              setEmailVerificationMessage('');
+
+              window.history.replaceState(
+                {},
+                document.title,
+                window.location.pathname
+              );
+            }}
+            style={{ marginTop: '18px' }}
+          >
+            Go to Login
+          </button>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 if (!isClientMode && isPasswordRecovery) {
@@ -2756,7 +3143,12 @@ if (!isClientMode && isPasswordRecovery) {
       recoveryMode
       onRecoveryComplete={() => {
         setIsPasswordRecovery(false);
-        window.history.replaceState({}, '', window.location.pathname);
+
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname
+        );
       }}
     />
   );
@@ -3033,8 +3425,9 @@ const handleClientResponse = async (
     setView('dashboard');
 
     try {
-      const { error } = await supabase.auth.signOut();
-
+      const { error } = await supabase.auth.signOut({
+  scope: 'global'
+});
       if (error) throw error;
     } catch (error) {
       console.error('Sign out failed:', error);
