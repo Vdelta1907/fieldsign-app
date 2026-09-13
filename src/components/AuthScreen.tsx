@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
