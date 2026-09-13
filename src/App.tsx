@@ -1788,14 +1788,9 @@ const exitOrderEditor = () => {
       const { data, error } = await supabase
         .from('orders')
         .insert({
-          ...draftPayload,
-          owner_id: session.user.id,
-          status: 'draft',
-          payment_status: 'unpaid',
-
-          // No active client link until this draft is sent for review.
-          signing_expires_at: new Date().toISOString()
-        })
+  ...draftPayload,
+  owner_id: session.user.id
+})
         .select(`
   id,
   order_type,
