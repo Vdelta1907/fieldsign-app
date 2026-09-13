@@ -1225,9 +1225,24 @@ useEffect(() => {
     window.clearInterval(validationInterval);
   };
 }, [isClientMode, session?.user.id]);
+const fetchDashboardOrders = useCallback(
+  async (silent = false): Promise<boolean> => {
+    if (!dashboardUserId || isClientMode) {
+      return false;
+    }
+
+    const requestId =
+      ++dashboardRequestId.current;
+
+    const controller = new AbortController();
+
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      12_000
+    );
 
     if (!silent) setIsLoadingOrders(true);
-
+    
     try {
       const { data, error } = await supabase
         .from('orders')
