@@ -1225,6 +1225,8 @@ useEffect(() => {
     window.clearInterval(validationInterval);
   };
 }, [isClientMode, session?.user.id]);
+const dashboardRequestId = useRef(0);
+const dashboardUserId = session?.user.id;
 const fetchDashboardOrders = useCallback(
   async (silent = false): Promise<boolean> => {
     if (!dashboardUserId || isClientMode) {
@@ -1242,7 +1244,7 @@ const fetchDashboardOrders = useCallback(
     );
 
     if (!silent) setIsLoadingOrders(true);
-    
+
     try {
       const { data, error } = await supabase
         .from('orders')
@@ -3015,6 +3017,15 @@ useEffect(() => {
     window.removeEventListener('focus', handleWindowFocus);
   };
 }, [isClientMode, currentSigningToken]);
+const attentionCount = orders.filter(
+  (order) =>
+    order.status === 'changes_requested' ||
+    order.status === 'declined'
+).length;
+
+const paidCount = orders.filter(
+  (order) => order.payment_status === 'paid'
+).length;
 
   if (!isClientMode && !authReady) {
   return (
