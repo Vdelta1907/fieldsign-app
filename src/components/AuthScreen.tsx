@@ -20,6 +20,9 @@ export function AuthScreen({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
+  const authSubmissionInProgress = useRef(false);
+const [accountCreatedEmail, setAccountCreatedEmail] =
+  useState('');
 
   const showMessage = (text: string, error = false) => {
     setMessage(text);
@@ -55,7 +58,10 @@ export function AuthScreen({
       return;
     }
 
-    setIsSubmitting(true);
+    if (authSubmissionInProgress.current) return;
+
+authSubmissionInProgress.current = true;
+setIsSubmitting(true);
 
     try {
       if (recoveryMode) {
@@ -79,25 +85,35 @@ export function AuthScreen({
       }
 
       if (mode === 'sign-up') {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-          },
-        });
+  const submittedEmail = email.trim();
 
-        if (error) throw error;
+  const { data, error } = await supabase.auth.signUp({
+    email: submittedEmail,
+    password,
+    options: {
+      emailRedirectTo: window.location.origin,
+    },
+  });
 
-        if (data.session) {
-          showMessage('Your account has been created successfully.');
-        } else {
-          showMessage(
-            'Account created. Check your email to verify your address before signing in.',
-          );
-        }
-        return;
-      }
+  if (error) throw error;
+
+  /*
+   * Production registration requires email verification.
+   * If Supabase unexpectedly returns a session, end it so
+   * account creation never opens the contractor dashboard.
+   */
+  if (data.session) {
+    const { error: signOutError } =
+      await supabase.auth.signOut();
+
+    if (signOutError) throw signOutError;
+  }
+
+  setPassword('');
+  setConfirmedPassword('');
+  setAccountCreatedEmail(submittedEmail);
+  return;
+}
 
       const { error } = await supabase.auth.resetPasswordForEmail(
         email.trim(),
@@ -118,9 +134,10 @@ export function AuthScreen({
           : 'We could not complete your request. Please try again.',
         true,
       );
-    } finally {
-      setIsSubmitting(false);
-    }
+   } finally {
+  authSubmissionInProgress.current = false;
+  setIsSubmitting(false);
+}
   };
 
   const title = recoveryMode
@@ -150,7 +167,95 @@ export function AuthScreen({
         <h1 id="auth-title">{title}</h1>
         <p>{description}</p>
 
-        <form onSubmit={handleSubmit}>
+        {accountCreatedEmail ? (
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      textAlign: 'center',
+      padding: '8px 0 4px'
+    }}
+  >
+    <div
+      aria-hidden="true"
+      style={{
+        width: '58px',
+        height: '58px',
+        margin: '0 auto 16px',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(16, 185, 129, 0.14)',
+        border: '1px solid rgba(52, 211, 153, 0.45)',
+        color: '#34d399',
+        fontSize: '28px',
+        fontWeight: 900
+      }}
+    >
+      ✓
+    </div>
+
+    <h2
+      style={{
+        margin: 0,
+        color: '#f8fafc',
+        fontSize: '25px',
+        fontWeight: 900
+      }}
+    >
+      Account created
+    </h2>
+
+    <p
+      style={{
+        margin: '12px 0 0',
+        color: '#cbd5e1',
+        fontSize: '14px',
+        lineHeight: 1.55
+      }}
+    >
+      We sent a verification email to:
+    </p>
+
+    <p
+      style={{
+        margin: '5px 0 0',
+        color: '#f59e0b',
+        fontSize: '15px',
+        fontWeight: 800,
+        overflowWrap: 'anywhere'
+      }}
+    >
+      {accountCreatedEmail}
+    </p>
+
+    <p
+      style={{
+        margin: '14px 0 0',
+        color: '#94a3b8',
+        fontSize: '13px',
+        lineHeight: 1.55
+      }}
+    >
+      Open the email and verify your address. Then return to
+      SignForth and sign in.
+    </p>
+
+    <button
+      type="button"
+      className="btn-primary"
+      onClick={() => {
+        setAccountCreatedEmail('');
+        changeMode('sign-in');
+      }}
+      style={{ marginTop: '20px' }}
+    >
+      Go to Login
+    </button>
+  </div>
+) : (
+  <form onSubmit={handleSubmit}>
           {!recoveryMode && (
             <>
               <label className="form-label" htmlFor="contractorEmail">
@@ -237,7 +342,8 @@ export function AuthScreen({
                     ? 'Send password-reset link'
                     : 'Sign in securely'}
           </button>
-        </form>
+          </form>
+)}
 
         {message && (
           <p
