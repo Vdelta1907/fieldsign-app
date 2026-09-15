@@ -125,11 +125,28 @@ const usesDefaultTerms = (value: ContractorProfile): boolean =>
     value.customTerms.trim() === DEFAULT_TERMS
   );
 
-const getProfileTerms = (value: ContractorProfile): string =>
+const getProfileTerms = (
+  value: ContractorProfile
+): string =>
   usesDefaultTerms(value)
     ? DEFAULT_TERMS
     : value.customTerms.trim();
 
+const createEmptyContractorProfile = (
+  email = ''
+): ContractorProfile => ({
+  companyName: '',
+  licenseNumber: '',
+  phone: '',
+  email,
+  logoDataUrl: '',
+  customTerms: '',
+  useDefaultTerms: true,
+  requirePaymentUpfront: false,
+  stripeAccountId: '',
+  stripeChargesEnabled: false,
+  stripeDetailsSubmitted: false
+});
 const formatTimestamp = (value?: string | null): string => {
   if (!value) return 'Not recorded';
 
@@ -186,24 +203,30 @@ const [
   const [filterTab, setFilterTab] = useState<
   'active' | 'draft' | 'pending' | 'signed' | null
 >(null);
-  const [profile, setProfile] = useState<ContractorProfile>(() => {
-    const saved = localStorage.getItem('fieldsign_contractor_profile');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return {
-      companyName: 'SignForth',
-      licenseNumber: 'SF-VA-00000',
-      phone: '(000) 000-0000',
-      email: 'info@example.com',
-      logoDataUrl: '',
-      customTerms: DEFAULT_TERMS,
-      requirePaymentUpfront: false,
-      stripeAccountId: '',
-      stripeChargesEnabled: false,
-      stripeDetailsSubmitted: false
-    };
-  });
+  const [profileState, setProfileState] = useState<{
+  userId: string | null;
+  value: ContractorProfile;
+}>(() => ({
+  userId: null,
+  value: createEmptyContractorProfile()
+}));
+
+const profileUserId = session?.user.id ?? null;
+const profileUserEmail = session?.user.email ?? '';
+
+const activeProfileUserIdRef = useRef<string | null>(
+  profileUserId
+);
+
+activeProfileUserIdRef.current = profileUserId;
+
+const profileLoadRequestId = useRef(0);
+
+const profile: ContractorProfile =
+  profileUserId !== null &&
+  profileState.userId === profileUserId
+    ? profileState.value
+    : createEmptyContractorProfile(profileUserEmail);
 
   // Active Job Form State
   const [clientName, setClientName] = useState('');
@@ -511,10 +534,23 @@ const cancelOrder = async (
     }
   };
 
-  const saveProfile = (newProfile: ContractorProfile) => {
-    setProfile(newProfile);
-    localStorage.setItem('fieldsign_contractor_profile', JSON.stringify(newProfile));
-  };
+  const saveProfile = (
+  newProfile: ContractorProfile
+) => {
+  const userId = session?.user.id;
+
+  if (
+    !userId ||
+    activeProfileUserIdRef.current !== userId
+  ) {
+    return;
+  }
+
+  setProfileState({
+    userId,
+    value: newProfile
+  });
+};
 useEffect(() => {
   if (
     !profile.stripeChargesEnabled &&
@@ -531,41 +567,70 @@ useEffect(() => {
 ]);  
 
   const loadContractorProfile = async () => {
-  if (!session) return;
+  const userId = session?.user.id;
+  const userEmail = session?.user.email ?? '';
+
+  if (!userId) return;
+
+  const requestId =
+    ++profileLoadRequestId.current;
 
   const { data, error } = await supabase
     .from('contractor_profiles')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', userId)
     .maybeSingle();
+
+  // Ignore an older request or a response for another account.
+  if (
+    activeProfileUserIdRef.current !== userId ||
+    requestId !== profileLoadRequestId.current
+  ) {
+    return;
+  }
 
   if (error) {
     console.error('Profile load failed:', error);
     return;
   }
 
-  if (!data) return;
+  // New accounts may not have saved a profile yet.
+  if (!data) {
+    setProfileState({
+      userId,
+      value: createEmptyContractorProfile(userEmail)
+    });
+    return;
+  }
 
   const savedTerms = data.custom_terms ?? '';
 
-  saveProfile({
-    companyName: data.company_name || 'SignForth Contractor',
-    licenseNumber: data.license_number || '',
-    phone: data.phone || '',
-    email: data.email || session.user.email || '',
-    logoDataUrl: data.logo_data_url || '',
-    customTerms: savedTerms,
-    useDefaultTerms:
-      typeof data.use_default_terms === 'boolean'
-        ? data.use_default_terms
-        : (
-            !savedTerms.trim() ||
-            savedTerms.trim() === DEFAULT_TERMS
-          ),
-    requirePaymentUpfront: Boolean(data.require_payment_upfront),
-    stripeAccountId: data.stripe_account_id || '',
-    stripeChargesEnabled: Boolean(data.stripe_charges_enabled),
-    stripeDetailsSubmitted: Boolean(data.stripe_details_submitted),
+  const useDefaultTerms =
+    typeof data.use_default_terms === 'boolean'
+      ? data.use_default_terms
+      : (
+          !savedTerms.trim() ||
+          savedTerms.trim() === DEFAULT_TERMS
+        );
+
+  setProfileState({
+    userId,
+    value: {
+      companyName: data.company_name ?? '',
+      licenseNumber: data.license_number ?? '',
+      phone: data.phone ?? '',
+      email: data.email ?? userEmail,
+      logoDataUrl: data.logo_data_url ?? '',
+      customTerms: savedTerms,
+      useDefaultTerms,
+      requirePaymentUpfront:
+        Boolean(data.require_payment_upfront),
+      stripeAccountId: data.stripe_account_id ?? '',
+      stripeChargesEnabled:
+        Boolean(data.stripe_charges_enabled),
+      stripeDetailsSubmitted:
+        Boolean(data.stripe_details_submitted)
+    }
   });
 };
 
