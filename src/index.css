@@ -642,3 +642,17 @@ canvas {
     margin: 15mm;
   }
 }
+.account-settings { max-width: 720px; margin: 0 auto; }
+.account-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.account-settings form { padding: 18px 0; border-top: 1px solid #334155; }
+.account-settings p { color: #cbd5e1; line-height: 1.6; overflow-wrap: anywhere; }
+.account-settings label { display: block; margin: 12px 0 8px; }
+.account-settings input { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px; font-size: 16px; color: #f8fafc; background: #0b1120; border: 1px solid #475569; border-radius: 8px; }
+.account-secret { position: relative; }
+.account-secret input { padding-right: 56px; }
+.account-secret button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; color: #cbd5e1; }
+.account-danger { border: 1px solid #f87171; border-radius: 12px; padding: 16px; margin-top: 24px; }
+.account-danger h3 { display: flex; gap: 8px; align-items: center; color: #fca5a5; }
+.account-delete { padding: 12px 16px; border: 1px solid #f87171; border-radius: 8px; background: #7f1d1d; color: white; font-weight: 700; min-height: 44px; cursor: pointer; }
+.account-delete:disabled { opacity: .5; cursor: not-allowed; }
+.settings-owner { overflow-wrap: anywhere; color: #cbd5e1; }

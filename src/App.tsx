@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
-import { AuthScreen } from './components/AuthScreen';
+import { AccountSettings } from './components/AccountSettings';
+import { createWorkspaceClient } from './lib/workspaceClient';
 import OrderActivityTimeline from './OrderActivityTimeline';
-import { supabase } from './lib/supabase';
+import { supabase as authClient } from './lib/supabase';
 import {
   AudioLines,
   ChevronDown,
@@ -178,25 +179,20 @@ const formatCurrency = (
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
 
-export default function App() {
-  const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings'>('dashboard');
+export default function App({ session, clientToken, isCurrent, onSession: setSession }: {
+  session: Session | null;
+  clientToken: string | null;
+  isCurrent: () => boolean;
+  onSession: (session: Session | null) => void;
+}) {
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [supabase] = useState(() => createWorkspaceClient(session?.user.id ?? null, () => mounted.current && isCurrent()));
+
+  const [view, setView] = useState<'dashboard' | 'contractor' | 'client_review' | 'signed_receipt' | 'settings' | 'account'>('dashboard');
   const [orderType, setOrderType] = useState<'Change Order' | 'New Job Agreement'>('Change Order');
   
-  const [isClientMode, setIsClientMode] = useState<boolean>(false);
-  const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
-  const [
-  emailVerificationStatus,
-  setEmailVerificationStatus
-] = useState<
-  'none' | 'processing' | 'verified' | 'error'
->('none');
-
-const [
-  emailVerificationMessage,
-  setEmailVerificationMessage
-] = useState('');
+  const isClientMode = Boolean(clientToken);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
@@ -221,6 +217,8 @@ const activeProfileUserIdRef = useRef<string | null>(
 activeProfileUserIdRef.current = profileUserId;
 
 const profileLoadRequestId = useRef(0);
+const [profileReady, setProfileReady] = useState(false);
+const [profileError, setProfileError] = useState('');
 
 const profile: ContractorProfile =
   profileUserId !== null &&
@@ -540,7 +538,7 @@ const cancelOrder = async (
   const userId = session?.user.id;
 
   if (
-    !userId ||
+    !userId || !mounted.current || !isCurrent() || !profileReady ||
     activeProfileUserIdRef.current !== userId
   ) {
     return;
@@ -571,29 +569,37 @@ useEffect(() => {
   const userEmail = session?.user.email ?? '';
 
   if (!userId) return;
+  setProfileError('');
 
   const requestId =
     ++profileLoadRequestId.current;
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
 
   const { data, error } = await supabase
     .from('contractor_profiles')
     .select('*')
     .eq('user_id', userId)
+    .abortSignal(controller.signal)
     .maybeSingle();
+  window.clearTimeout(timeout);
 
   // Ignore an older request or a response for another account.
   if (
-    activeProfileUserIdRef.current !== userId ||
+    !mounted.current || !isCurrent() || activeProfileUserIdRef.current !== userId ||
     requestId !== profileLoadRequestId.current
   ) {
     return;
   }
 
-  if (error) {
+  if (error || (data && data.user_id !== userId)) {
     console.error('Profile load failed:', error);
+    setProfileError('Your profile could not be loaded. Retry before editing or connecting Stripe.');
     return;
   }
 
+  setProfileReady(true);
   // New accounts may not have saved a profile yet.
   if (!data) {
     setProfileState({
@@ -635,7 +641,7 @@ useEffect(() => {
 };
 
 const persistContractorProfile = async () => {
-  if (!session) return;
+  if (!session || !isCurrent() || !profileReady) throw new Error('Your profile is not ready. Reload and try again.');
 
   if (
     !usesDefaultTerms(profile) &&
@@ -729,12 +735,48 @@ const persistContractorProfile = async () => {
     setIsSavingProfile(false);
   }
 };
+  const stripeWindowRef = useRef<Window | null>(null);
+  useEffect(() => () => { stripeWindowRef.current?.close(); }, []);
+  const stripeStatusBusy = useRef(false);
+  const [stripeStatusReady, setStripeStatusReady] = useState(false);
+  const [stripeStatusError, setStripeStatusError] = useState('');
+  const refreshStripeStatus = async () => {
+    if (!session || !profileReady || !isCurrent() || stripeStatusBusy.current) return;
+    stripeStatusBusy.current = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-connect-onboard', { body: { action: 'status' }, signal: controller.signal });
+      if (!mounted.current || !isCurrent()) return;
+      if (error || data?.user_id !== session.user.id) throw new Error('Could not verify Stripe status. Retry before connecting.');
+      setProfileState(previous => previous.userId === session.user.id ? {
+        ...previous, value: { ...previous.value, stripeAccountId: data.account_id || '',
+          stripeChargesEnabled: Boolean(data.charges_enabled),
+          stripeDetailsSubmitted: Boolean(data.details_submitted) }
+      } : previous);
+      setStripeStatusError('');
+      setStripeStatusReady(true);
+    } catch {
+      if (mounted.current && isCurrent()) {
+        setStripeStatusReady(false);
+        setStripeStatusError('Stripe status could not be verified. Please retry or contact support.');
+      }
+    } finally { window.clearTimeout(timeout); stripeStatusBusy.current = false; }
+  };
+  useEffect(() => {
+    if (!profileReady || isClientMode) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshStripeStatus(); };
+    void refreshStripeStatus();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [profileReady, isClientMode]);
   const stripeConnectInProgress = useRef(false);
   const [stripeLaunchStatus, setStripeLaunchStatus] =
   useState<'idle' | 'opening' | 'opened'>('idle');
 
 const connectStripe = async () => {
-  if (stripeConnectInProgress.current) return;
+  if (stripeConnectInProgress.current || !profileReady || !stripeStatusReady || !isCurrent()) return;
 
   const continueToStripe = window.confirm(
     'You’re leaving SignForth and continuing to Stripe. ' +
@@ -765,6 +807,9 @@ const connectStripe = async () => {
   }
 
   stripeWindow.opener = null;
+  stripeWindowRef.current = stripeWindow;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
 
   stripeConnectInProgress.current = true;
   setIsConnectingStripe(true);
@@ -784,8 +829,10 @@ const connectStripe = async () => {
     }
 
     const { data, error } = await supabase.functions.invoke(
-      'stripe-connect-onboard'
+      'stripe-connect-onboard', { body: { action: 'open' }, signal: controller.signal }
     );
+    if (!mounted.current || !isCurrent()) { stripeWindow.close(); return; }
+    if (!error && data?.user_id !== session.user.id) throw new Error('Stripe returned an unexpected account. Please contact support.');
 
     if (error) {
       let message =
@@ -843,10 +890,14 @@ const connectStripe = async () => {
       );
     }
 
+    if (stripeWindow.closed) throw new Error('The Stripe window was closed. Please try again.');
     stripeWindow.location.replace(destination.href);
+    stripeWindowRef.current = null;
+    void refreshStripeStatus();
     setStripeLaunchStatus('opened');
   } catch (error: unknown) {
     stripeWindow.close();
+    if (!mounted.current || !isCurrent()) return;
     setStripeLaunchStatus('idle');
 
     console.error('Stripe connection failed:', error);
@@ -858,6 +909,8 @@ const connectStripe = async () => {
             'if the problem continues, contact support.'
     );
   } finally {
+    window.clearTimeout(timeout);
+    stripeWindowRef.current = null;
     stripeConnectInProgress.current = false;
     setIsConnectingStripe(false);
   }
@@ -993,167 +1046,11 @@ const connectStripe = async () => {
     reader.readAsDataURL(file);
   };
   useEffect(() => {
-  const params = new URLSearchParams(
-    window.location.search
-  );
-
-  const signingToken = params.get('sign');
-  const passwordRecovery =
-    params.get('reset-password') === '1';
-  const emailVerificationReturn =
-    params.get('email-verified') === '1';
-
-  if (signingToken) {
-    setIsClientMode(true);
-    setCurrentSigningToken(signingToken);
-    void loadOrderFromDb(signingToken);
-    setAuthReady(true);
-    return;
-  }
-
-  setIsClientMode(false);
-
-  /*
-   * A verification link creates a temporary Supabase session.
-   * Handle and close that session before the contractor
-   * dashboard is allowed to render.
-   */
-  if (emailVerificationReturn) {
-    setIsPasswordRecovery(false);
-    setEmailVerificationStatus('processing');
-    setAuthReady(false);
-
-    let cancelled = false;
-
-    const completeEmailVerification = async () => {
-      const errorDescription =
-        params.get('error_description');
-
-      if (errorDescription) {
-        if (cancelled) return;
-
-        setSession(null);
-        setEmailVerificationStatus('error');
-        setEmailVerificationMessage(
-          decodeURIComponent(
-            errorDescription.replace(/\+/g, ' ')
-          )
-        );
-        setAuthReady(true);
-        return;
-      }
-
-      const {
-        data: { session: verificationSession },
-        error: sessionError
-      } = await supabase.auth.getSession();
-
-      if (cancelled) return;
-
-      if (sessionError || !verificationSession) {
-        setSession(null);
-        setEmailVerificationStatus('error');
-        setEmailVerificationMessage(
-          'This verification link is invalid or has expired. ' +
-            'Return to login and request a new verification email.'
-        );
-        setAuthReady(true);
-        return;
-      }
-
-      if (
-        !verificationSession.user.email_confirmed_at
-      ) {
-        setSession(null);
-        setEmailVerificationStatus('error');
-        setEmailVerificationMessage(
-          'Your email address could not be verified. ' +
-            'Return to login and request a new verification email.'
-        );
-        setAuthReady(true);
-        return;
-      }
-
-      /*
-       * End only the session created on this device by the
-       * verification link. Other signed-in devices remain active.
-       */
-      const { error: signOutError } =
-        await supabase.auth.signOut({
-          scope: 'local'
-        });
-
-      if (cancelled) return;
-
-      if (signOutError) {
-        console.error(
-          'Verification session cleanup failed:',
-          signOutError
-        );
-
-        setSession(null);
-        setEmailVerificationStatus('error');
-        setEmailVerificationMessage(
-          'Your email was verified, but SignForth could not ' +
-            'finish securing this browser session. Refresh the ' +
-            'page before signing in.'
-        );
-        setAuthReady(true);
-        return;
-      }
-
-      window.history.replaceState(
-        {},
-        document.title,
-        window.location.pathname
-      );
-
-      setSession(null);
-      setEmailVerificationMessage('');
-      setEmailVerificationStatus('verified');
-      setAuthReady(true);
-    };
-
-    void completeEmailVerification();
-
-    return () => {
-      cancelled = true;
-    };
-  }
-
-  setEmailVerificationStatus('none');
-  setEmailVerificationMessage('');
-  setIsPasswordRecovery(passwordRecovery);
-
-  void supabase.auth.getSession().then(
-    ({ data, error }) => {
-      if (error) {
-        console.error(
-          'Initial session load failed:',
-          error
-        );
-      }
-
-      setSession(data.session);
-      setAuthReady(true);
+    if (clientToken) {
+      setCurrentSigningToken(clientToken);
+      void loadOrderFromDb(clientToken);
     }
-  );
-
-  const { data: authListener } =
-    supabase.auth.onAuthStateChange(
-      (event, nextSession) => {
-        if (event === 'PASSWORD_RECOVERY') {
-          setIsPasswordRecovery(true);
-        }
-
-        setSession(nextSession);
-        setAuthReady(true);
-      }
-    );
-
-  return () =>
-    authListener.subscription.unsubscribe();
-}, []);
+  }, [clientToken]);
 useEffect(() => {
   if (isClientMode || !session) return;
 
@@ -1179,20 +1076,19 @@ useEffect(() => {
        * device discover that its session was revoked.
        */
       const { data, error } =
-        await supabase.auth.refreshSession();
+        await authClient.auth.refreshSession();
 
       if (cancelled || sessionEnded) return;
 
       const sessionWasRevoked =
         (!data.session && !error) ||
-        error?.status === 400 ||
-        error?.status === 401;
+        ['refresh_token_not_found', 'refresh_token_already_used', 'session_not_found', 'session_expired', 'user_banned', 'user_not_found'].includes(error?.code ?? '');
 
       if (sessionWasRevoked) {
         sessionEnded = true;
 
         const { error: localSignOutError } =
-          await supabase.auth.signOut({
+          await authClient.auth.signOut({
             scope: 'local'
           });
 
@@ -3092,162 +2988,12 @@ const paidCount = orders.filter(
   (order) => order.payment_status === 'paid'
 ).length;
 
-  if (!isClientMode && !authReady) {
-  return (
-    <div className="app-loading" role="status">
-      {emailVerificationStatus === 'processing'
-        ? 'Verifying your email…'
-        : 'Opening SignForth…'}
-    </div>
-  );
-}
-
-if (
-  !isClientMode &&
-  emailVerificationStatus === 'verified'
-) {
-  return (
-    <main className="auth-shell">
-      <section
-        className="auth-card"
-        aria-labelledby="verification-title"
-      >
-        <div
-          className="auth-mark"
-          aria-hidden="true"
-          style={{
-            fontSize: '27px',
-            fontWeight: 900,
-            color: '#0f172a',
-          }}
-        >
-          ✓
-        </div>
-
-        <span className="sub-tag">
-          SignForth Contractor Portal
-        </span>
-
-        <div
-          role="status"
-          aria-live="polite"
-          style={{ textAlign: 'center' }}
-        >
-          <h1 id="verification-title">
-            Email verified
-          </h1>
-
-          <p>
-            Your email address has been verified
-            successfully. You can now sign in to your
-            SignForth account.
-          </p>
-
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              setEmailVerificationStatus('none');
-              setEmailVerificationMessage('');
-
-              window.history.replaceState(
-                {},
-                document.title,
-                window.location.pathname
-              );
-            }}
-            style={{ marginTop: '18px' }}
-          >
-            Go to Login
-          </button>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-if (
-  !isClientMode &&
-  emailVerificationStatus === 'error'
-) {
-  return (
-    <main className="auth-shell">
-      <section
-        className="auth-card"
-        aria-labelledby="verification-error-title"
-      >
-        <div
-          className="auth-mark"
-          aria-hidden="true"
-          style={{
-            fontSize: '25px',
-            fontWeight: 900,
-            color: '#0f172a',
-          }}
-        >
-          !
-        </div>
-
-        <span className="sub-tag">
-          SignForth Contractor Portal
-        </span>
-
-        <div
-          role="alert"
-          style={{ textAlign: 'center' }}
-        >
-          <h1 id="verification-error-title">
-            Verification link unavailable
-          </h1>
-
-          <p>
-            {emailVerificationMessage ||
-              'This verification link is invalid or has expired.'}
-          </p>
-
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              setEmailVerificationStatus('none');
-              setEmailVerificationMessage('');
-
-              window.history.replaceState(
-                {},
-                document.title,
-                window.location.pathname
-              );
-            }}
-            style={{ marginTop: '18px' }}
-          >
-            Go to Login
-          </button>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-if (!isClientMode && isPasswordRecovery) {
-  return (
-    <AuthScreen
-      recoveryMode
-      onRecoveryComplete={() => {
-        setIsPasswordRecovery(false);
-
-        window.history.replaceState(
-          {},
-          '',
-          window.location.pathname
-        );
-      }}
-    />
-  );
-}
-
-if (!isClientMode && !session) {
-  return <AuthScreen />;
-}
+  if (!isClientMode && !profileReady) return <main className="auth-shell"><section className="auth-card">
+    <h1>Loading your workspace</h1>
+    <p role={profileError ? 'alert' : 'status'}>{profileError || 'Loading your business profile…'}</p>
+    {profileError && <button className="btn-primary" onClick={() => void loadContractorProfile()}>Retry</button>}
+    <button className="btn-secondary" onClick={() => void authClient.auth.signOut({ scope: 'global' })}>Sign out</button>
+  </section></main>;
   if (isClientMode && clientLoadError) {
     return (
       <main className="auth-shell">
@@ -3349,7 +3095,7 @@ const handleClientResponse = async (
     <div className="app-container">
    {!isClientMode && (
   <header className="demo-banner">
-    <span className="demo-brand">⚡ FieldSign Contractor Portal</span>
+    <span className="demo-brand">⚡ SignForth Contractor Portal</span>
 
     <nav className="demo-btn-group" aria-label="Contractor navigation">
       <button
@@ -3489,6 +3235,11 @@ const handleClientResponse = async (
 
       {isAccountMenuOpen && (
         <div className="account-dropdown" role="menu">
+          <button type="button" className="account-dropdown-item" role="menuitem"
+            disabled={isSaving || revisionOpeningId !== null}
+            onClick={() => { if (!prepareContractorNavigation()) return; setView('account'); setIsAccountMenuOpen(false); }}>
+            <UserRound size={17} aria-hidden="true" /> Account settings
+          </button>
           <button
   type="button"
   className="account-dropdown-item"
@@ -3502,7 +3253,7 @@ const handleClientResponse = async (
   }}
 >
   <Settings size={17} aria-hidden="true" />
-  Profile &amp; settings
+  Branding &amp; Stripe Setup
 </button>
           <button
   type="button"
@@ -3516,7 +3267,7 @@ const handleClientResponse = async (
     setView('dashboard');
 
     try {
-      const { error } = await supabase.auth.signOut({
+      const { error } = await authClient.auth.signOut({
   scope: 'global'
 });
       if (error) throw error;
@@ -3537,38 +3288,39 @@ const handleClientResponse = async (
   </header>
 )}
       <div className="main-wrapper">
+        {view === 'account' && session && !isClientMode && <AccountSettings session={session} client={supabase} isCurrent={isCurrent} onBack={() => setView('dashboard')} />}
         {/* VIEW 4: SETTINGS */}
         {view === 'settings' && !isClientMode && (
           <div className="card-dark">
             <div className="card-header">
               <div>
                 <span className="sub-tag">Payments & Profile</span>
-                <h2 className="card-title">Settings & Branding</h2>
+                <h2 className="card-title">Branding &amp; Stripe Setup</h2>
               </div>
               <span style={{ fontSize: '24px' }}>⚙️</span>
             </div>
 
+            <p className="settings-owner">Settings for {session?.user.email}</p>
+            {stripeStatusError && <p role="alert">{stripeStatusError} <button type="button" onClick={() => void refreshStripeStatus()}>Retry Stripe status</button></p>}
             <div style={{ background: '#0b1120', border: '1px solid #334155', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: profile.stripeChargesEnabled ? '#10b981' : '#38bdf8', textTransform: 'uppercase' }}>
-                {profile.stripeChargesEnabled ? '✓ Stripe Connected' : 'Stripe Payments'}
+              <span style={{ fontSize: '11px', fontWeight: 800, color: stripeStatusReady && profile.stripeChargesEnabled ? '#10b981' : '#38bdf8', textTransform: 'uppercase' }}>
+                {!stripeStatusReady ? 'Stripe status unverified' : profile.stripeChargesEnabled ? '✓ Stripe Connected' : 'Stripe Payments'}
               </span>
               <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 10px 0' }}>
-                {profile.stripeChargesEnabled
+                {stripeStatusReady && profile.stripeChargesEnabled
                   ? 'Client payments are deposited directly into your connected Stripe account.'
                   : 'Connect your own Stripe account before offering payment during client sign-off.'}
               </p>
  <button
   type="button"
   onClick={() => void connectStripe()}
-  disabled={isConnectingStripe}
+  disabled={isConnectingStripe || !stripeStatusReady}
   className="btn-secondary"
   style={{ marginTop: 0 }}
 >
-  {stripeLaunchStatus === 'opening'
+  {!stripeStatusReady ? 'Verifying Stripe status…' : stripeLaunchStatus === 'opening'
     ? 'Opening Stripe…'
-    : stripeLaunchStatus === 'opened'
-      ? '✓ Stripe opened in browser'
-      : profile.stripeChargesEnabled &&
+    : profile.stripeChargesEnabled &&
           profile.stripeDetailsSubmitted
         ? 'Manage Stripe account'
         : profile.stripeAccountId
@@ -3587,7 +3339,7 @@ const handleClientResponse = async (
     type="checkbox"
     id="requirePayment"
     checked={profile.requirePaymentUpfront}
-    disabled={!profile.stripeChargesEnabled}
+    disabled={!stripeStatusReady || !profile.stripeChargesEnabled}
     onChange={(event) =>
       saveProfile({
         ...profile,

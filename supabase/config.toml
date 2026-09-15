@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.stripe-connect-onboard]
 verify_jwt = false
+
+[functions.account-security]
+verify_jwt = false
