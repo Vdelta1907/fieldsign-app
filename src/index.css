@@ -519,14 +519,21 @@ canvas {
     border-radius: 16px;
   }
 }
-/* Lower the logged-in interface below the iPhone status bar */
-@supports (-webkit-touch-callout: none) {
-  @media (max-width: 640px) {
-    .app-container {
-      padding-top: 48px;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-  }
+/* Use the device's real safe area in Safari, installed apps, and Android.
+   Normal browser toolbars already reduce the viewport; do not guess their height. */
+.app-container,
+.auth-shell,
+.app-loading {
+  min-height: 100svh;
+}
+.app-container {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.auth-shell,
+.app-loading {
+  padding-top: max(24px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
 }
 /* Voice Dictation */
 .voice-dictation-btn {

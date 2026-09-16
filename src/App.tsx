@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { AccountSettings } from './components/AccountSettings';
@@ -218,6 +218,12 @@ activeProfileUserIdRef.current = profileUserId;
 
 const profileLoadRequestId = useRef(0);
 const [profileReady, setProfileReady] = useState(false);
+// Login and Settings may leave the document scrolled below the dashboard header.
+// Reset only on contractor screen transitions, never on background refreshes.
+useLayoutEffect(() => {
+  if (isClientMode || !profileReady) return;
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+}, [isClientMode, profileReady, view]);
 const [profileError, setProfileError] = useState('');
 
 const profile: ContractorProfile =

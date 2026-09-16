@@ -15,7 +15,7 @@ vi.mock('../src/App', () => ({ default: ({ session, isCurrent }: any) => {
   return <><p>{session.user.id}</p><input aria-label="Private draft" value={value} onChange={e => setValue(e.target.value)} /></>;
 } }));
 
-beforeEach(() => { vi.resetModules(); mock.session = null; window.history.replaceState({}, '', '/'); });
+beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); mock.session = null; window.history.replaceState({}, '', '/'); });
 afterEach(cleanup);
 const login = (id: string) => act(() => mock.callback('SIGNED_IN', { user: { id } }));
 
@@ -58,4 +58,40 @@ test('verification never mounts the dashboard and subsequent login works without
   await waitFor(() => expect(screen.getByText('Login screen')).toBeTruthy());
   login('verified-account');
   expect(screen.getByLabelText('Private draft')).toBeTruthy();
+});
+
+test.each(['query', 'hash'])('first email-change confirmation in %s needs no session and never opens a dashboard', async (location) => {
+  if (location === 'query') mock.session = { user: { id: 'already-signed-in' } };
+  const message = encodeURIComponent('Confirmation link accepted. Please proceed to confirm link sent to the other email');
+  window.history.replaceState({}, '', location === 'query'
+    ? `/?email-verified=1&message=${message}` : `/?email-verified=1#message=${message}`);
+  mock.getUser.mockResolvedValue({ data: { user: null }, error: new Error('No session') });
+  const { default: Boundary } = await import('../src/components/SessionBoundary');
+  render(<Boundary />);
+  await screen.findByText('Check your other inbox');
+  expect(mock.getUser).not.toHaveBeenCalled();
+  expect(mock.signOut).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Private draft')).toBeNull();
+  expect(screen.queryByText('Email address updated')).toBeNull();
+});
+
+test('second email-change confirmation validates the user and closes the callback session', async () => {
+  window.history.replaceState({}, '', '/?email-verified=1#type=email_change');
+  mock.getUser.mockResolvedValue({ data: { user: { email: 'new@example.com', email_confirmed_at: '2026-09-16' } }, error: null });
+  mock.signOut.mockResolvedValue({ error: null });
+  const { default: Boundary } = await import('../src/components/SessionBoundary');
+  render(<Boundary />);
+  await screen.findByText('Email address updated');
+  expect(mock.signOut).toHaveBeenCalledWith({ scope: 'local' });
+  expect(screen.queryByLabelText('Private draft')).toBeNull();
+});
+
+test('an expired or reused link cannot be mistaken for a successful confirmation', async () => {
+  window.history.replaceState({}, '', '/?email-verified=1#error_description=Email+link+is+invalid+or+has+expired');
+  const { default: Boundary } = await import('../src/components/SessionBoundary');
+  render(<Boundary />);
+  await screen.findByText('Verification unavailable');
+  expect(screen.getByRole('alert').textContent).toBe('Email link is invalid or has expired');
+  expect(mock.getUser).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Private draft')).toBeNull();
 });

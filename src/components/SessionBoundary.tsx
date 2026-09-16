@@ -7,21 +7,33 @@ import { AuthScreen } from './AuthScreen';
 const params = new URLSearchParams(window.location.search);
 const hash = new URLSearchParams(window.location.hash.slice(1));
 const clientToken = params.get('sign');
-const verificationReturn = params.get('email-verified') === '1';
+// Secure email changes return a message after the first inbox confirmation,
+// and an authenticated email_change callback only after the second.
+const firstEmailConfirmation = [params.get('message'), hash.get('message')].some(
+  value => value === 'Confirmation link accepted. Please proceed to confirm link sent to the other email',
+);
+const emailChangeReturn = hash.get('type') === 'email_change' || params.get('type') === 'email_change';
+const verificationReturn = params.get('email-verified') === '1' || emailChangeReturn || firstEmailConfirmation;
 const recoveryReturn = params.get('reset-password') === '1' || hash.get('type') === 'recovery';
 // Share initialization between StrictMode effect mounts; a verification token is single use.
-let verification: Promise<void> | undefined;
+type VerificationResult = 'verified' | 'pending' | 'changed';
+let verification: Promise<VerificationResult> | undefined;
 function verifyEmail() {
   return verification ??= (async () => {
     const linkError = params.get('error_description') || hash.get('error_description');
     if (linkError) throw new Error(linkError);
+    // This is informational guidance, never authentication or authorization.
+    // Supabase has not issued a session at this stage; do not require one.
+    if (firstEmailConfirmation) return 'pending';
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user?.email_confirmed_at) {
       throw new Error('This verification link is invalid or has expired. Request a fresh email.');
     }
+    if (emailChangeReturn && data.user.new_email) return 'pending';
     const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) throw new Error('Email verified, but session cleanup failed. Refresh to retry.');
     window.history.replaceState({}, '', window.location.pathname);
+    return emailChangeReturn ? 'changed' : 'verified';
   })();
 }
 
@@ -50,8 +62,8 @@ export default function SessionBoundary() {
       setReady(true);
     });
     if (verificationReturn) {
-      void verifyEmail().then(() => {
-        if (active) { setVerificationState('verified'); setReady(true); }
+      void verifyEmail().then((result) => {
+        if (active) { setVerificationState(result); setReady(true); }
       }).catch((error: unknown) => {
         if (active) {
           setMessage(error instanceof Error ? error.message : 'Verification could not finish.');
@@ -67,8 +79,17 @@ export default function SessionBoundary() {
   if (verificationState !== 'none') return (
     <main className="auth-shell"><section className="auth-card">
       <span className="sub-tag">SignForth Contractor Portal</span>
-      <h1>{verificationState === 'verified' ? 'Email verified' : 'Verification unavailable'}</h1>
-      <p role={verificationState === 'error' ? 'alert' : 'status'}>{message || 'Your email is verified. Sign in to continue.'}</p>
+      <h1>{verificationState === 'pending' ? 'Check your other inbox'
+        : verificationState === 'changed' ? 'Email address updated'
+        : verificationState === 'verified' ? 'Email verified' : 'Verification unavailable'}</h1>
+      <p role={verificationState === 'error' ? 'alert' : 'status'}>{message || (
+        verificationState === 'pending'
+          ? 'One confirmation has been received. Open the separate confirmation email in your other inbox (your current or new email address). Click that link once to finish changing your email. Your email change is not complete yet.'
+          : verificationState === 'changed'
+            ? 'Your sign-in email has been updated. Sign in with your new email address and your existing password.'
+            : 'Your email is verified. Sign in to continue.'
+      )}</p>
+      {verificationState === 'error' && <p>If this was an email change and you already clicked this link, check your other inbox for the separate confirmation email. If both confirmations are complete, try signing in with your new email. Otherwise, sign in and request a new email change from Account settings.</p>}
       <button className="btn-primary" onClick={async () => {
         const { error } = await supabase.auth.signOut({ scope: 'local' });
         if (error) { setMessage('Could not finish signing out. Please retry.'); return; }
