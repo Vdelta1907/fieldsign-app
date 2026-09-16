@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
+import { BRANDING } from './lib/branding';
 import { AccountSettings } from './components/AccountSettings';
 import { createWorkspaceClient } from './lib/workspaceClient';
 import OrderActivityTimeline from './OrderActivityTimeline';
@@ -1530,7 +1531,7 @@ const loadOrderFromDb = async (signingToken: string) => {
       o.contractor_company || profile.companyName
     );
     setOrderContractorLogo(
-      o.contractor_logo || profile.logoDataUrl
+      o.contractor_logo || BRANDING.defaultLogo
     );
     setOrderContractorLicense(
       o.contractor_license || profile.licenseNumber
@@ -1953,7 +1954,7 @@ const exitOrderEditor = () => {
       order_type: orderType,
       contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      contractor_logo: profile.logoDataUrl || null,
+      contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
       contractor_license: profile.licenseNumber || null,
       contractor_phone: profile.phone || null,
       contractor_email: profile.email || null,
@@ -2178,7 +2179,7 @@ const exitOrderEditor = () => {
       p_order_type: orderType,
       p_contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      p_contractor_logo: profile.logoDataUrl || null,
+      p_contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
       p_contractor_license:
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
@@ -2224,7 +2225,7 @@ const exitOrderEditor = () => {
       p_order_type: orderType,
       p_contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      p_contractor_logo: profile.logoDataUrl || null,
+      p_contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
       p_contractor_license:
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
@@ -2556,7 +2557,9 @@ if (!result?.signed_at_utc) {
   }) => {
     const { jsPDF } = await import('jspdf');
     const dCompany = targetDoc?.company || orderContractorName || profile.companyName;
-    const dLogo = targetDoc?.logo || orderContractorLogo || profile.logoDataUrl;
+    const dLogo = targetDoc
+      ? targetDoc.logo || BRANDING.defaultLogo
+      : orderContractorLogo || (isClientMode || currentOrderId ? BRANDING.defaultLogo : profile.logoDataUrl || BRANDING.defaultLogo);
     const dLicense = targetDoc?.license || orderContractorLicense || profile.licenseNumber;
     const dContractorPhone = targetDoc?.phone || orderContractorPhone || profile.phone;
     const dContractorEmail = targetDoc?.email || orderContractorEmail || profile.email;
@@ -3098,7 +3101,7 @@ const handleClientResponse = async (
   }
 };
   return (
-    <div className="app-container">
+    <div className={`app-container${isClientMode ? '' : ' contractor-app'}`}>
    {!isClientMode && (
   <header className="demo-banner">
     <span className="demo-brand">⚡ SignForth Contractor Portal</span>
@@ -3412,7 +3415,7 @@ const handleClientResponse = async (
                   </button>
                 </div>
               ) : (
-                <p style={{ fontSize: '11px', color: '#64748b', margin: '8px 0' }}>No logo uploaded yet</p>
+                <div style={{ textAlign: 'center', margin: '8px 0' }}><img src={BRANDING.defaultLogo} alt="SignForth default logo" style={{ height: '60px', width: '60px' }} /><p style={{ fontSize: '12px', color: '#94a3b8' }}>SignForth default logo. Upload your business logo to replace it.</p></div>
               )}
               <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ fontSize: '12px', border: 'none', background: 'transparent' }} />
             </div>
@@ -4818,9 +4821,9 @@ o.status === 'changes_requested' ? (
             gap: '10px'
           }}
         >
-          {(orderContractorLogo || profile.logoDataUrl) && (
+          {(
             <img
-              src={orderContractorLogo || profile.logoDataUrl}
+              src={orderContractorLogo || (isClientMode || currentOrderId ? BRANDING.defaultLogo : profile.logoDataUrl || BRANDING.defaultLogo)}
               alt="Logo"
               style={{
                 maxHeight: '35px',

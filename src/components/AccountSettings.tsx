@@ -25,17 +25,15 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
   const [deleting, setDeleting] = useState(false);
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState(false);
+  const [activeAction, setActiveAction] = useState('');
   const lock = useRef(false);
   const submit = async (action: 'email' | 'password' | 'request-deletion') => {
     if (lock.current || !isCurrent()) return;
-    setMessage(''); setError(false);
-    if (!currentPassword) { setError(true); setMessage('Enter your current password to confirm your identity.'); return; }
+    if (!currentPassword) { window.alert('Enter your current password to confirm your identity.'); return; }
     if (action === 'password' && (password.length < 8 || password !== confirmPassword)) {
-      setError(true); setMessage('Use at least 8 characters and matching passwords.'); return;
+      window.alert('Use at least 8 characters and matching passwords.'); return;
     }
-    lock.current = true; setBusy(true);
+    lock.current = true; setBusy(true); setActiveAction(action);
     try {
       const { data, error: invokeError } = await client.functions.invoke('account-security', {
         body: { action, currentPassword, email: email.trim(), password, confirmation },
@@ -47,7 +45,7 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
         throw new Error(details?.error || 'The account change could not be completed. Please retry.');
       }
       setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setConfirmation('');
-      setMessage(data.message);
+      window.alert(data.message || 'Your request was completed.');
       if (action === 'password') {
         // Server revokes other sessions; clear this browser as well.
         await authClient.auth.signOut({ scope: 'local' });
@@ -55,8 +53,8 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
       }
       if (action === 'request-deletion') setDeleting(false);
     } catch (reason) {
-      if (isCurrent()) { setError(true); setMessage(reason instanceof Error ? reason.message : 'Please retry.'); }
-    } finally { lock.current = false; setBusy(false); }
+      if (isCurrent()) { window.alert(reason instanceof Error ? reason.message : 'Please retry.'); }
+    } finally { lock.current = false; setBusy(false); setActiveAction(''); }
   };
   return <section className="card-dark account-settings">
     <span className="sub-tag">Your SignForth login</span><h2>Account settings</h2>
@@ -69,7 +67,7 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
         <h3>Change email address</h3><label htmlFor="account-new-email">New email address</label>
         <input id="account-new-email" type="email" autoComplete="email" value={email} required onChange={e => setEmail(e.target.value)} />
         <p>Follow the verification instructions sent to your email addresses. Your login email stays unchanged until confirmation is complete.</p>
-        <button className="btn-secondary" type="submit">Verify email change</button>
+        <button className="btn-secondary" type="submit">{activeAction === 'email' ? 'Verifying email change…' : 'Verify email change'}</button>
       </form>
       <form onSubmit={e => { e.preventDefault(); void submit('password'); }}>
         <h3>Change password</h3>
@@ -77,23 +75,21 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
         <SecretInput id="account-confirm-password" label="Confirm new password" autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} />
         <p role="status">{confirmPassword ? (password === confirmPassword ? 'Passwords match.' : 'Passwords do not match.') : 'Use at least 8 characters.'}</p>
         <p>After the password changes, sign in again on your devices.</p>
-        <button className="btn-secondary" type="submit">Update password</button>
+        <button className="btn-secondary" type="submit">{activeAction === 'password' ? 'Updating password…' : 'Update password'}</button>
       </form>
       <section className="account-danger">
         <h3><TriangleAlert size={22} aria-hidden="true" /> Account deletion</h3>
         <p>Request removal of your account and editable profile. Signed authorizations, payment records, and evidence require review before deletion. This request does not delete your Stripe account.</p>
-        {!deleting ? <button className="account-delete" type="button" onClick={() => setDeleting(true)}>Request account deletion</button> :
+        {!deleting ? <button className="account-delete" type="button" onClick={() => { if (window.confirm('Request account deletion?\n\nThis starts a review. Signed authorizations and payment records may need to be retained. Your Stripe account will not be deleted. Continue?')) setDeleting(true); }}>Request account deletion</button> :
           <form onSubmit={e => { e.preventDefault(); void submit('request-deletion'); }}>
             <p>Your request will be recorded for review. Your account remains active until that review is completed.</p>
             <label htmlFor="delete-confirmation">Type DELETE to confirm your request</label>
             <input id="delete-confirmation" value={confirmation} onChange={e => setConfirmation(e.target.value)} required autoComplete="off" />
-            <button className="account-delete" type="submit" disabled={confirmation !== 'DELETE'}>Confirm deletion request</button>
+            <button className="account-delete" type="submit" disabled={confirmation !== 'DELETE'}>{activeAction === 'request-deletion' ? 'Submitting request…' : 'Confirm deletion request'}</button>
             <button type="button" className="btn-secondary" onClick={() => { setDeleting(false); setConfirmation(''); }}>Cancel</button>
           </form>}
       </section>
     </fieldset>
-    {busy && <p role="status">Verifying and saving…</p>}
-    {message && <p role={error ? 'alert' : 'status'} style={{ color: error ? '#fca5a5' : '#6ee7b7' }}>{message}</p>}
     <button className="btn-secondary" type="button" disabled={busy} onClick={onBack}>Return to dashboard</button>
   </section>;
 }
