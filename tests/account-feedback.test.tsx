@@ -35,6 +35,8 @@ test('deletion warning can be cancelled before entering the request form', () =>
   const invoke = mount();
   fireEvent.click(screen.getByText('Request account deletion'));
   expect(confirm).toHaveBeenCalled();
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('\n\nThis starts a review.'));
+  expect(confirm.mock.calls[0]?.[0]).not.toContain('\\n');
   expect(screen.queryByLabelText('Type DELETE to confirm your request')).toBeNull();
   expect(invoke).not.toHaveBeenCalled();
 });

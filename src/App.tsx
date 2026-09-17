@@ -180,6 +180,10 @@ const formatCurrency = (
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
 
+const isIosHomeScreenApp = (): boolean =>
+  typeof navigator !== 'undefined' &&
+  Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+
 export default function App({ session, clientToken, isCurrent, onSession: setSession }: {
   session: Session | null;
   clientToken: string | null;
@@ -224,6 +228,31 @@ const [profileReady, setProfileReady] = useState(false);
 useLayoutEffect(() => {
   if (isClientMode || !profileReady) return;
   window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+}, [isClientMode, profileReady, view]);
+
+// The orders list owns dashboard scrolling. Locking the document itself is
+// necessary on iOS Safari, which can otherwise move a fixed-height app shell.
+useEffect(() => {
+  if (isClientMode || !profileReady || view !== 'dashboard') return;
+
+  const root = document.documentElement;
+  const body = document.body;
+  const keepDocumentAtTop = () => {
+    if (window.scrollX !== 0 || window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
+  };
+
+  window.scrollTo(0, 0);
+  root.classList.add('dashboard-document-lock');
+  body.classList.add('dashboard-document-lock');
+  window.addEventListener('scroll', keepDocumentAtTop, { passive: true });
+
+  return () => {
+    window.removeEventListener('scroll', keepDocumentAtTop);
+    root.classList.remove('dashboard-document-lock');
+    body.classList.remove('dashboard-document-lock');
+  };
 }, [isClientMode, profileReady, view]);
 const [profileError, setProfileError] = useState('');
 
@@ -3101,7 +3130,7 @@ const handleClientResponse = async (
   }
 };
   return (
-    <div className={`app-container${isClientMode ? '' : ' contractor-app'}${view === 'dashboard' && !isClientMode ? ' dashboard-mode' : ''}`}>
+    <div className={`app-container${isClientMode ? '' : ' contractor-app'}${view === 'dashboard' && !isClientMode ? ' dashboard-mode' : ''}${isIosHomeScreenApp() ? ' ios-home-screen' : ''}`}>
    {!isClientMode && (
   <header className="demo-banner">
     <span className="demo-brand">⚡ SignForth Contractor Portal</span>

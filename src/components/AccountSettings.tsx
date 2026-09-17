@@ -38,7 +38,7 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
 
   const openPanel = (action: AccountAction) => {
     if (action === 'request-deletion' && !window.confirm(
-      'Request account deletion?\\n\\nThis starts a review. Signed authorizations and payment records may need to be retained. Your Stripe account will not be deleted. Continue?',
+      'Request account deletion?\n\nThis starts a review. Signed authorizations and payment records may need to be retained. Your Stripe account will not be deleted. Continue?',
     )) return;
     closePanel();
     setPanel(action);

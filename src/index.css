@@ -708,6 +708,28 @@ input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
   background: #090d16;
 }
 
+/* navigator.standalone is the reliable signal for legacy and current iOS
+   Home Screen installations. The browser media query is inconsistent there. */
+.contractor-app.ios-home-screen .demo-banner {
+  padding-top: max(34px, env(safe-area-inset-top, 0px));
+}
+.contractor-app.ios-home-screen .demo-banner::before { display: none; }
+
+/* Prevent Safari's root page from becoming a second dashboard scroller. */
+html.dashboard-document-lock,
+html.dashboard-document-lock body,
+html.dashboard-document-lock #root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html.dashboard-document-lock body {
+  position: fixed;
+  inset: 0;
+}
+
 /* Dashboard viewport: summary remains still; expanded orders scroll alone. */
 .contractor-app.dashboard-mode { height: 100dvh; min-height: 0; overflow: hidden; }
 .dashboard-mode .demo-banner { position: relative; top: auto; }
