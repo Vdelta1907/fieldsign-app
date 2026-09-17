@@ -3101,7 +3101,7 @@ const handleClientResponse = async (
   }
 };
   return (
-    <div className={`app-container${isClientMode ? '' : ' contractor-app'}`}>
+    <div className={`app-container${isClientMode ? '' : ' contractor-app'}${view === 'dashboard' && !isClientMode ? ' dashboard-mode' : ''}`}>
    {!isClientMode && (
   <header className="demo-banner">
     <span className="demo-brand">⚡ SignForth Contractor Portal</span>
@@ -3296,7 +3296,7 @@ const handleClientResponse = async (
     </div>
   </header>
 )}
-      <div className="main-wrapper">
+      <div className={`main-wrapper${view === 'dashboard' && !isClientMode ? ' dashboard-main' : ''}`}>
         {view === 'account' && session && !isClientMode && <AccountSettings session={session} client={supabase} isCurrent={isCurrent} onBack={() => setView('dashboard')} />}
         {/* VIEW 4: SETTINGS */}
         {view === 'settings' && !isClientMode && (
@@ -3567,7 +3567,8 @@ const handleClientResponse = async (
 
         {/* VIEW 0: CONTRACTOR DASHBOARD */}
         {view === 'dashboard' && !isClientMode && (
-          <div>
+          <div className="dashboard-shell">
+            <div className="dashboard-summary">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>
                 <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Total Approved</span>
@@ -3675,6 +3676,8 @@ const handleClientResponse = async (
     </button>
   ))}
 </div>
+            </div>
+            <div className="dashboard-orders-scroll" aria-label="Orders list">
             {filterTab === null && (
               <div style={{ textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
                 Tap any status category above to expand orders ▼
@@ -4251,6 +4254,7 @@ o.status === 'changes_requested' ? (
                 ))}
               </div>
             )}
+            </div>
           </div>
         )}
         {/* VIEW 1: CONTRACTOR FORM WITH VOICE DICTATION & DUAL PHOTO INPUTS */}

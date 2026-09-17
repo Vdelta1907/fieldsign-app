@@ -651,7 +651,7 @@ canvas {
 }
 .account-settings { max-width: 720px; margin: 0 auto; }
 .account-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.account-settings form { padding: 18px 0; border-top: 1px solid #334155; }
+.account-settings form { padding: 18px 0; }
 .account-settings p { color: #cbd5e1; line-height: 1.6; overflow-wrap: anywhere; }
 .account-settings label { display: block; margin: 12px 0 8px; }
 .account-settings input { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px; font-size: 16px; color: #f8fafc; background: #0b1120; border: 1px solid #475569; border-radius: 8px; }
@@ -662,6 +662,20 @@ canvas {
 .account-danger h3 { display: flex; gap: 8px; align-items: center; color: #fca5a5; }
 .account-delete { padding: 12px 16px; border: 1px solid #f87171; border-radius: 8px; background: #7f1d1d; color: white; font-weight: 700; min-height: 44px; cursor: pointer; }
 .account-delete:disabled { opacity: .5; cursor: not-allowed; }
+.account-actions { display: grid; gap: 10px; margin-top: 22px; }
+.account-action { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 68px; padding: 13px 14px; border: 1px solid #334155; border-radius: 12px; background: #0b1120; color: #e2e8f0; text-align: left; cursor: pointer; }
+.account-action:hover, .account-action:focus-visible { border-color: #f59e0b; background: #111a2c; }
+.account-action > svg { flex: 0 0 auto; color: #f59e0b; }
+.account-action span { display: grid; gap: 4px; }
+.account-action strong { font-size: 14px; }
+.account-action small { color: #94a3b8; font-size: 11px; line-height: 1.4; }
+.account-action.danger { border-color: rgba(248, 113, 113, .55); }
+.account-action.danger > svg, .account-action.danger strong { color: #fca5a5; }
+.account-panel { margin-top: 22px; border-top: 1px solid #334155; }
+.account-panel h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.account-panel-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: stretch; margin-top: 16px; }
+.account-panel-actions .btn-primary, .account-panel-actions .btn-secondary { margin: 0; }
+.account-back { margin-top: 22px; }
 .settings-owner { overflow-wrap: anywhere; color: #cbd5e1; }
 
 /* Keep placeholder hints visibly distinct from entered information. */
@@ -670,12 +684,12 @@ input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
 
 :root { --app-top-inset: env(safe-area-inset-top, 0px); --app-header-gap: 0px; }
 @media (display-mode: standalone) {
-  :root { --app-header-gap: 12px; }
+  :root { --app-header-gap: 24px; }
 }
 /* Older installed iOS shortcuts may report a zero inset. */
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) {
-    :root { --app-top-inset: max(48px, env(safe-area-inset-top, 0px)); }
+    :root { --app-top-inset: max(56px, env(safe-area-inset-top, 0px)); }
   }
 }
 .contractor-app { padding-top: 0; overflow: visible; }
@@ -693,3 +707,11 @@ input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
   height: calc(var(--app-top-inset) + var(--app-header-gap));
   background: #090d16;
 }
+
+/* Dashboard viewport: summary remains still; expanded orders scroll alone. */
+.contractor-app.dashboard-mode { height: 100dvh; min-height: 0; overflow: hidden; }
+.dashboard-mode .demo-banner { position: relative; top: auto; }
+.dashboard-main { flex: 1 1 auto; min-height: 0; margin-top: 16px; margin-bottom: 0; padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+.dashboard-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.dashboard-summary { flex: 0 0 auto; }
+.dashboard-orders-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 2px 2px 14px; scrollbar-gutter: stable; }

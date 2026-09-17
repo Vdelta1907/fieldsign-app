@@ -11,6 +11,8 @@ function mount(invoke = vi.fn()) {
 test('missing identity password displays a popup without making a server request', () => {
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
   const invoke = mount();
+  expect(screen.queryByLabelText('New email address')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Change email address/ }));
   fireEvent.change(screen.getByLabelText('New email address'), { target: { value: 'new@example.com' } });
   fireEvent.click(screen.getByText('Verify email change'));
   expect(alert).toHaveBeenCalledWith('Enter your current password to confirm your identity.');
@@ -20,6 +22,7 @@ test('email action gives immediate button feedback followed by a success popup',
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
   let finish!: (value: any) => void;
   mount(vi.fn(() => new Promise(resolve => { finish = resolve; })));
+  fireEvent.click(screen.getByRole('button', { name: /Change email address/ }));
   fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'test-password' } });
   fireEvent.change(screen.getByLabelText('New email address'), { target: { value: 'new@example.com' } });
   fireEvent.click(screen.getByText('Verify email change'));
@@ -34,4 +37,15 @@ test('deletion warning can be cancelled before entering the request form', () =>
   expect(confirm).toHaveBeenCalled();
   expect(screen.queryByLabelText('Type DELETE to confirm your request')).toBeNull();
   expect(invoke).not.toHaveBeenCalled();
+});
+
+test('password fields remain hidden until Change password is selected and Cancel closes them', () => {
+  mount();
+  expect(screen.queryByLabelText('New password')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Change password/ }));
+  expect(screen.getByLabelText('New password')).toBeTruthy();
+  expect(screen.queryByLabelText('New email address')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByLabelText('New password')).toBeNull();
+  expect(screen.getByRole('button', { name: /Change email address/ })).toBeTruthy();
 });
