@@ -2,13 +2,13 @@
 
 FieldSign is a mobile-first contractor workflow for creating change orders and new-job agreements, collecting client authorization, attaching site evidence, and producing a signed PDF record.
 
-For this ZIP's iPhone status-bar fix, deployment steps, and Home Screen refresh instructions, see [START-HERE.md](START-HERE.md).
+For this ZIP's Gate 4 client rate limits, ordered database/Edge Function deployment, and validation, read [START-HERE.md](START-HERE.md) first. The previous iPhone and elastic dashboard fixes are retained.
 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
 2. Add the Supabase project URL and publishable key.
-3. Run both SQL files in `supabase/migrations/` in filename order using the Supabase SQL editor.
+3. This package targets the existing reviewed SignForth deployment. Do not replay the historical SQL migrations or run a blanket database push. Follow the staged Gate 4 instructions in START-HERE.md; this archive is not a complete fresh-database bootstrap.
 4. Enable email sign-in in Supabase Authentication and add the production URL to the allowed redirect URLs.
 5. Install and start the app:
 

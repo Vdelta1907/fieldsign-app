@@ -9,3 +9,9 @@ verify_jwt = false
 
 [functions.account-security]
 verify_jwt = false
+
+[functions.submit-signature]
+verify_jwt = false
+
+[functions.client-authorization]
+verify_jwt = false

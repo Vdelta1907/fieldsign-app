@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { useDashboardElasticity } from './hooks/useDashboardElasticity';
+import { clientAuthorization, ClientRateLimitError } from './lib/clientAuthorization';
 import { BRANDING } from './lib/branding';
 import { AccountSettings } from './components/AccountSettings';
 import { createWorkspaceClient } from './lib/workspaceClient';
@@ -1466,9 +1467,7 @@ const loadOrderFromDb = async (signingToken: string) => {
 
   const showCurrentLinkState = async () => {
     const { data: stateData, error: stateError } =
-      await supabase.rpc('fieldsign_get_link_state', {
-        p_signing_token: signingToken
-      });
+      await clientAuthorization(supabase, 'state', signingToken);
 
     if (stateError) throw stateError;
 
@@ -1515,12 +1514,7 @@ const loadOrderFromDb = async (signingToken: string) => {
   };
 
   try {
-    const { data, error } = await supabase.rpc(
-      'get_order_for_signing',
-      {
-        p_token: signingToken
-      }
-    );
+    const { data, error } = await clientAuthorization(supabase, 'order', signingToken);
 
     if (error) throw error;
 
@@ -2486,6 +2480,10 @@ if (error) {
     'context' in error &&
     error.context instanceof Response
   ) {
+    if (error.context.status === 429) {
+      const seconds = Math.min(60, Math.max(1, Number(error.context.headers.get('Retry-After')) || 60));
+      throw new ClientRateLimitError(seconds);
+    }
     const errorBody = await error.context
       .clone()
       .json()
@@ -2524,6 +2522,10 @@ if (!result?.signed_at_utc) {
     setView('signed_receipt');
   } catch (error: unknown) {
     console.error('Error recording signature:', error);
+    if (error instanceof ClientRateLimitError) {
+      alert(error.message);
+      return;
+    }
 
     const message =
       typeof error === 'object' &&
@@ -2839,11 +2841,7 @@ useEffect(() => {
     );
 
     try {
-      const { data, error } = await supabase
-        .rpc('fieldsign_get_link_state', {
-          p_signing_token: token
-        })
-        .abortSignal(requestController.signal);
+      const { data, error } = await clientAuthorization(supabase, 'state', token, { signal: requestController.signal });
 
       if (stopped) return;
       if (error) throw error;
@@ -2983,12 +2981,7 @@ useEffect(() => {
   let active = true;
 
   const checkClientLinkState = async () => {
-    const { data, error } = await supabase.rpc(
-      'fieldsign_get_link_state',
-      {
-        p_signing_token: currentSigningToken,
-      }
-    );
+    const { data, error } = await clientAuthorization(supabase, 'state', currentSigningToken);
 
     if (error || !active) return;
 
@@ -3088,15 +3081,9 @@ const handleClientResponse = async (
   setIsSubmittingClientResponse(true);
 
   try {
-    const { error } = await supabase.rpc(
-      'fieldsign_submit_client_response_v2',
-      {
-        p_signing_token: signingToken,
-        p_response: response,
-        p_note: responseNote || null,
-        p_submission_id: submissionId
-      }
-    );
+    const { error } = await clientAuthorization(supabase, 'respond', signingToken, {
+      response, note: responseNote || null, submissionId,
+    });
 
     if (error) throw error;
 
@@ -3105,6 +3092,10 @@ const handleClientResponse = async (
     setClientResponseMode(null);
   } catch (error: unknown) {
     console.error('Client response error:', error);
+    if (error instanceof ClientRateLimitError) {
+      alert(error.message);
+      return;
+    }
 
     const message =
       typeof error === 'object' &&
