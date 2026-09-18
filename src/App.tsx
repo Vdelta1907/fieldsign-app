@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
+import { useDashboardElasticity } from './hooks/useDashboardElasticity';
 import { BRANDING } from './lib/branding';
 import { AccountSettings } from './components/AccountSettings';
 import { createWorkspaceClient } from './lib/workspaceClient';
@@ -254,6 +255,9 @@ useEffect(() => {
     body.classList.remove('dashboard-document-lock');
   };
 }, [isClientMode, profileReady, view]);
+const dashboardRef = useDashboardElasticity(
+  !isClientMode && profileReady && view === 'dashboard' && filterTab === null
+);
 const [profileError, setProfileError] = useState('');
 
 const profile: ContractorProfile =
@@ -3596,7 +3600,7 @@ const handleClientResponse = async (
 
         {/* VIEW 0: CONTRACTOR DASHBOARD */}
         {view === 'dashboard' && !isClientMode && (
-          <div className="dashboard-shell">
+          <div ref={dashboardRef} className={`dashboard-shell${filterTab === null ? ' dashboard-collapsed' : ''}`}>
             <div className="dashboard-summary">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ background: '#131b2e', border: '1px solid #1e293b', borderRadius: '14px', padding: '14px' }}>

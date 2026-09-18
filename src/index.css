@@ -682,38 +682,35 @@ canvas {
 input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
 .card-light input::placeholder, .card-light textarea::placeholder { color: #64748b; }
 
-:root { --app-top-inset: env(safe-area-inset-top, 0px); --app-header-gap: 0px; }
-@media (display-mode: standalone) {
-  :root { --app-header-gap: 24px; }
-}
-/* Older installed iOS shortcuts may report a zero inset. */
-@supports (-webkit-touch-callout: none) {
-  @media (display-mode: standalone) {
-    :root { --app-top-inset: max(56px, env(safe-area-inset-top, 0px)); }
-  }
-}
+/* One header inset rule: installed iOS keeps the existing 34px minimum
+   when a shortcut reports zero, otherwise uses the device's safe area. */
 .contractor-app { padding-top: 0; overflow: visible; }
 .contractor-app .demo-banner {
   position: sticky;
   top: 0;
-  padding-top: calc(10px + var(--app-top-inset) + var(--app-header-gap));
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   flex-shrink: 0;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
 }
-.contractor-app .demo-banner::before {
+/* Preserve the browser and non-iOS installed header spacing. */
+.contractor-app:not(.ios-home-screen) .demo-banner::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: calc(var(--app-top-inset) + var(--app-header-gap));
+  height: env(safe-area-inset-top, 0px);
   background: #090d16;
 }
-
-/* navigator.standalone is the reliable signal for legacy and current iOS
-   Home Screen installations. The browser media query is inconsistent there. */
+@media (display-mode: standalone) {
+  .contractor-app:not(.ios-home-screen) .demo-banner {
+    padding-top: calc(34px + env(safe-area-inset-top, 0px));
+  }
+  .contractor-app:not(.ios-home-screen) .demo-banner::before {
+    height: calc(24px + env(safe-area-inset-top, 0px));
+  }
+}
 .contractor-app.ios-home-screen .demo-banner {
   padding-top: max(34px, env(safe-area-inset-top, 0px));
 }
-.contractor-app.ios-home-screen .demo-banner::before { display: none; }
 
 /* Prevent Safari's root page from becoming a second dashboard scroller. */
 html.dashboard-document-lock,
@@ -737,3 +734,11 @@ html.dashboard-document-lock body {
 .dashboard-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .dashboard-summary { flex: 0 0 auto; }
 .dashboard-orders-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 2px 2px 14px; scrollbar-gutter: stable; }
+
+/* Translate only dashboard content; the document and header remain locked. */
+.dashboard-collapsed { touch-action: pan-x pinch-zoom; }
+.dashboard-collapsed .dashboard-orders-scroll { overflow-y: hidden; }
+.dashboard-shell.elastic-return { transition: transform 320ms cubic-bezier(.2, .8, .2, 1.15); }
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-shell.elastic-return { transition: none; }
+}
