@@ -1,59 +1,69 @@
-# SignForth dashboard lock refinement
+# SignForth iPhone status-bar fix and elastic dashboard
 
-This complete source folder is based on the latest `secure-foundation` version. It contains the previously completed account-isolation, Account Settings, branding, Stripe, default-logo, placeholder, and dashboard work, plus the three refinements from the latest physical-device test.
+This complete source ZIP retains the existing account isolation, account settings, branding, Stripe, order workflow, and dashboard features. It includes the previous elastic dashboard update and the revised iPhone status-bar approach described below.
 
-## What changed in this update
+## What changed
 
-1. The account-deletion warning now uses real line breaks. The prompt no longer displays the characters `\n\n`.
-2. iPhone Home Screen mode is detected through `navigator.standalone`, rather than depending only on an unreliable CSS media query. Only that mode receives the additional top spacing; Android and normal Safari retain their existing layout.
-3. Dashboard mode now locks the browser document itself. The header, totals, attention notice, and order categories remain stationary. Only the expanded orders feed can scroll. The lock is removed automatically when the user leaves Dashboard.
+The iPhone screenshot showed the portal title and account control beneath the system's blurred status area. The earlier CSS cleanup retained the same 34px installed-app padding and did not resolve that overlap.
+
+- `index.html` now requests an opaque `black` iOS status bar instead of `black-translucent`. This requests a content viewport below the system status bar rather than drawing the header beneath it.
+- `src/index.css` removes the installed-iPhone 34px minimum. The header uses the normal 10px padding plus any remaining device-reported top safe area. In installed iOS dashboard mode, the app uses the locked root's available height rather than `100dvh`.
+- The previous elastic dashboard work is retained: when all categories are collapsed, vertical touch/wheel gestures move the dashboard by at most 12px and it returns to its starting position. The document stays locked. Opening a category disables this effect and permits scrolling in the orders feed. Reduced-motion preferences are respected.
+- `tests/mobile-shell.test.ts` checks the launch metadata; the gesture regression tests remain included.
+- This instruction file and the README now reflect this release.
+
+The intentional visual change is a separate, opaque iOS status-bar area above the orange header. Normal browser and Android header rules are unchanged. No Supabase SQL migration or Edge Function deployment is required.
 
 ## Upload and deploy
 
-No Supabase SQL migration or Edge Function deployment is required for this update.
-
-1. Keep a copy of the current working ZIP as a checkpoint.
+1. Keep the previous ZIP as a checkpoint.
 2. Extract this ZIP.
-3. In GitHub, open the `secure-foundation` branch—not `main`.
-4. Upload the **contents inside** the extracted folder to the repository root. Do not upload the enclosing folder as a new subfolder.
-5. Allow GitHub to replace files with matching names.
-6. Commit directly to `secure-foundation` with:
+3. Open the repository's `secure-foundation` branch in GitHub.
+4. Upload the **contents inside** the extracted folder to the repository root, replacing matching files. Do not create an enclosing subfolder in the repository.
+5. Commit with:
 
-   `Fix iPhone dashboard spacing and lock orders feed`
+   `Fix installed iPhone status-bar overlap and retain elastic dashboard`
 
-7. Wait for the Vercel production deployment to finish successfully.
+6. Wait for the Vercel deployment to succeed.
 
-Keep the existing Vercel environment variables and local `.env` values. The ZIP contains no real credentials and excludes `node_modules` and generated build output.
+Keep existing Vercel environment variables and local `.env` values. This ZIP excludes real credentials, dependencies, generated build output, and the temporary local browser-test fixture.
 
-## Focused tests after deployment
+## Refresh the iPhone installation
 
-### 1. Account-deletion warning
+The status-bar setting is launch metadata. An existing Home Screen installation may retain the previous value; refreshing its page alone is not a sufficient test.
 
-- Open **Account settings**.
-- Tap **Request account deletion**.
-- Confirm that there is a blank line after “Request account deletion?” and that `\n\n` is not printed.
-- Tap **Cancel**. The deletion form should remain closed.
+1. Finish and save any work in progress.
+2. Open the deployed site in Safari and refresh it after deployment completes.
+3. Remove the old SignForth Home Screen app/icon and add the refreshed site to the Home Screen again, using **Open as Web App** if that option is shown.
+4. Launch the new icon and sign in if requested.
+5. Confirm that the portal title and account button sit below the system status area and are sharp and fully visible. Test portrait and landscape.
 
-### 2. iPhone Home Screen spacing
+Do not change/delete server-side accounts or orders to refresh the installation. If the blur remains, capture the new screen and record the iPhone model and iOS version. Desktop preview checks cannot reproduce the native iOS status-bar compositor.
 
-- First refresh `https://fieldsign-app.vercel.app` in Safari after the new Vercel deployment.
-- Remove the older SignForth Home Screen icon and add it to the Home Screen again. This prevents an old installed copy from obscuring the result.
-- Open the installed app and confirm that the contractor header is fully below the status area, with no cropping or blur.
-- Confirm that normal Safari and Android still look unchanged.
+## Focused behavior checks
 
-### 3. Stationary dashboard and scrolling orders
+- With all categories collapsed, drag the dashboard vertically: it should move slightly and return, without moving the page or header.
+- Tap a category: it should open normally. A drag starting on a category must not accidentally activate it.
+- Expand a category with enough orders to scroll. Scroll the orders feed and confirm that the header, totals, attention notice, and category buttons stay still.
+- Collapse the category and check that the feed no longer scrolls.
+- Check Account settings and Branding & Stripe Setup: normal page scrolling should still work.
+- Check normal Safari and Android to confirm their existing layout is retained.
 
-- Open Dashboard and expand any category containing enough orders to scroll.
-- Swipe vertically inside the orders feed. Orders should move.
-- The SignForth header, navigation, totals, attention notice, and all four category buttons must remain in the same position.
-- Try swiping over the stationary summary area. The outer page must not move.
-- Open **Account settings** or **Branding & Stripe Setup** and confirm those pages scroll normally; the document lock applies only to Dashboard.
+## Validation
 
-## Validation completed before packaging
+Run locally with Node and npm installed:
 
-- 7 automated test files passed (20 tests total).
-- TypeScript and the Vite production build passed.
-- A 390 × 844 mobile browser check forced an outer-page scroll attempt. The document remained at position `0`, the summary coordinates did not move, and the orders feed moved to position `500`.
-- That check also confirmed the iPhone Home Screen class, a 34px top inset, fixed document positioning, and hidden root overflow.
+```sh
+npm ci
+npm test
+npm run build
+npm run lint
+```
 
-The browser check uses mocked account data and does not modify production users, orders, Stripe accounts, emails, or payments. The final iPhone check must still be completed on the physical device because desktop browser emulation cannot reproduce every installed-Safari behavior.
+The build command includes TypeScript checking. Validation completed for this package:
+
+- 9 automated test files passed: 25 tests total.
+- TypeScript checking and the Vite production build passed.
+- Lint exited successfully with one existing warning in `tests/server-security.test.ts` (`unicorn/no-thenable`).
+- Local browser checks used the real App with mocked account/order data at 375 × 768 and 390 × 785 available-content viewports. Installed-mode height matched each viewport; collapsed orders had hidden overflow. Expanded orders scrolled by 785px while the document remained at 0 and the summary position was unchanged.
+- The browser checks simulate available content space and installed-mode detection; they do not emulate the native iOS status-bar compositor. The physical-device check above is still required.

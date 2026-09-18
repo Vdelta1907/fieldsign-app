@@ -682,8 +682,8 @@ canvas {
 input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
 .card-light input::placeholder, .card-light textarea::placeholder { color: #64748b; }
 
-/* One header inset rule: installed iOS keeps the existing 34px minimum
-   when a shortcut reports zero, otherwise uses the device's safe area. */
+/* The non-translucent iOS status bar reserves its own space. Use only
+   the remaining device safe area plus the normal 10px header padding. */
 .contractor-app { padding-top: 0; overflow: visible; }
 .contractor-app .demo-banner {
   position: sticky;
@@ -708,9 +708,6 @@ input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
     height: calc(24px + env(safe-area-inset-top, 0px));
   }
 }
-.contractor-app.ios-home-screen .demo-banner {
-  padding-top: max(34px, env(safe-area-inset-top, 0px));
-}
 
 /* Prevent Safari's root page from becoming a second dashboard scroller. */
 html.dashboard-document-lock,
@@ -729,6 +726,9 @@ html.dashboard-document-lock body {
 
 /* Dashboard viewport: summary remains still; expanded orders scroll alone. */
 .contractor-app.dashboard-mode { height: 100dvh; min-height: 0; overflow: hidden; }
+/* Installed iOS uses the locked root's available height, which excludes the
+   opaque system status bar; do not size it from the full screen's dvh. */
+.contractor-app.ios-home-screen.dashboard-mode { height: 100%; }
 .dashboard-mode .demo-banner { position: relative; top: auto; }
 .dashboard-main { flex: 1 1 auto; min-height: 0; margin-top: 16px; margin-bottom: 0; padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
 .dashboard-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }

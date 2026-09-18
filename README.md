@@ -2,6 +2,8 @@
 
 FieldSign is a mobile-first contractor workflow for creating change orders and new-job agreements, collecting client authorization, attaching site evidence, and producing a signed PDF record.
 
+For this ZIP's iPhone status-bar fix, deployment steps, and Home Screen refresh instructions, see [START-HERE.md](START-HERE.md).
+
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
@@ -18,6 +20,7 @@ npm run dev
 ## Validation
 
 ```bash
+npm test
 npm run lint
 npm run build
 ```
