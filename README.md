@@ -2,7 +2,7 @@
 
 FieldSign is a mobile-first contractor workflow for creating change orders and new-job agreements, collecting client authorization, attaching site evidence, and producing a signed PDF record.
 
-For this ZIP's Gate 4 client rate limits, ordered database/Edge Function deployment, and validation, read [START-HERE.md](START-HERE.md) first. The previous iPhone and elastic dashboard fixes are retained.
+For this ZIP's Gate 4 private-media stage, ordered database/Edge Function deployment, and validation, read [START-HERE.md](START-HERE.md) first. The previous iPhone and elastic dashboard fixes are retained.
 
 ## Local setup
 

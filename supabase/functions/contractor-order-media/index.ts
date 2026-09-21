@@ -67,47 +67,27 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: getCorsHeaders(origin) });
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405, origin);
   try {
-    const body = await readClientBody(request, 16_384);
-    const { action, signingToken } = body;
-    if (typeof signingToken !== 'string' || !uuidPattern.test(signingToken) ||
-        typeof action !== 'string' || !['order', 'order-media', 'state', 'respond'].includes(action)) {
-      throw new ClientRequestError('Invalid authorization request.', 400);
-    }
+    const authorization = request.headers.get('authorization') || '';
+    if (!authorization.startsWith('Bearer ')) return jsonResponse({ error: 'Sign in to view this order.' }, 401, origin);
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    await enforceClientLimit(admin, signingToken, action === 'respond' ? 'write' : 'read');
-    let operation;
-    if (action === 'respond') {
-      if (typeof body.submissionId !== 'string' || !uuidPattern.test(body.submissionId) ||
-          typeof body.response !== 'string' || !['changes_requested', 'declined'].includes(body.response) ||
-          (body.note !== null && body.note !== undefined && typeof body.note !== 'string')) {
-        throw new ClientRequestError('Invalid client response.', 400);
-      }
-      operation = admin.rpc('fieldsign_submit_client_response_v2', {
-        p_signing_token: signingToken, p_response: body.response,
-        p_note: body.note ?? null, p_submission_id: body.submissionId,
-      });
-    } else if (action === 'order-media') {
-      operation = admin.rpc('signforth_get_order_media', { p_token: signingToken });
-    } else if (action === 'order') {
-      operation = admin.rpc('get_order_for_signing', { p_token: signingToken });
-    } else {
-      operation = admin.rpc('fieldsign_get_link_state', { p_signing_token: signingToken });
+    const { data: identity, error: authError } = await admin.auth.getUser(authorization.slice(7));
+    if (authError || !identity.user) return jsonResponse({ error: 'Sign in to view this order.' }, 401, origin);
+    const body = await readClientBody(request, 4096);
+    if (typeof body.orderId !== 'string' || !uuidPattern.test(body.orderId)) {
+      throw new ClientRequestError('Invalid order request.', 400);
     }
-    const { data, error } = await operation;
-    if (error) {
-      // Preserve business validation messages, without exposing arbitrary SQL errors.
-      const message = error.code === 'P0001' ? error.message : 'Unable to process this authorization. Please try again.';
-      return jsonResponse({ error: message }, error.code === 'P0001' ? 400 : 503, origin);
-    }
-    if (action === 'order-media') {
-      const resolved = await authorizeOrderMedia(admin, data);
-      return jsonResponse({ data: resolved ? [resolved] : [] }, 200, origin);
-    }
-    return jsonResponse({ data }, 200, origin);
+    // Use verified user identity as the budget key, never a supplied owner ID.
+    await enforceClientLimit(admin, identity.user.id, 'read');
+    const { data, error } = await admin.rpc('signforth_get_order_media', {
+      p_order_id: body.orderId, p_owner_id: identity.user.id,
+    });
+    if (error) throw new Error('Order read failed');
+    if (!data) return jsonResponse({ error: 'The signed order is unavailable.' }, 404, origin);
+    return jsonResponse({ data: await authorizeOrderMedia(admin, data) }, 200, origin);
   } catch (error) {
     if (error instanceof ClientRequestError) return jsonResponse({ error: error.message }, error.status, origin, error.retryAfter);
-    return jsonResponse({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, origin);
+    return jsonResponse({ error: 'Unable to load this order. Please try again.' }, 503, origin);
   }
 });

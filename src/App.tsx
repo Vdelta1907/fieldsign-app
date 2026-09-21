@@ -1,3 +1,4 @@
+import { loadContractorOrderMedia } from './lib/orderMedia';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
@@ -1515,6 +1516,7 @@ const loadOrderFromDb = async (signingToken: string) => {
 
   try {
     const { data, error } = await clientAuthorization(supabase, 'order', signingToken);
+    if (!isCurrent()) return;
 
     if (error) throw error;
 
@@ -4129,45 +4131,8 @@ const handleClientResponse = async (
   onClick={() => {
     void (async () => {
       try {
-        const {
-          data: pdfOrder,
-          error: pdfOrderError
-        } = await supabase
-          .from('orders')
-          .select(`
-            id,
-            contractor_company,
-            contractor_logo,
-            contractor_license,
-            contractor_phone,
-            contractor_email,
-            custom_terms,
-            order_type,
-            project_title,
-            client_name,
-            client_phone,
-            description,
-            cost,
-            photo_data,
-            photo_data_2,
-            signature_data,
-            signed_at,
-            signed_at_utc,
-            payment_status
-          `)
-          .eq('id', o.id)
-          .is('archived_at', null)
-          .single();
-
-        if (pdfOrderError) {
-          throw pdfOrderError;
-        }
-
-        if (!pdfOrder) {
-          throw new Error(
-            'The signed order is unavailable.'
-          );
-        }
+        const pdfOrder = await loadContractorOrderMedia(supabase, o.id);
+        if (!isCurrent()) return;
 
         handleDownloadPdf({
           company: pdfOrder.contractor_company,

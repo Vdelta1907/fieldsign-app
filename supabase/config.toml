@@ -15,3 +15,9 @@ verify_jwt = false
 
 [functions.client-authorization]
 verify_jwt = false
+
+[functions.contractor-order-media]
+verify_jwt = false
+
+[functions.prepare-order-media]
+verify_jwt = false

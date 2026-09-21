@@ -1,3 +1,4 @@
+import { hydrateOrderMedia, MediaDownloadError } from './orderMedia';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class ClientRateLimitError extends Error {
@@ -23,18 +24,33 @@ export async function clientAuthorization(
   if (remaining > 0) return { data: null, error: new ClientRateLimitError(remaining) };
   limits.delete(key);
   const { signal, ...fields } = options;
-  const { data, error } = await client.functions.invoke('client-authorization', {
-    body: { action, signingToken, ...fields }, signal,
-  });
-  if (!error) return { data: data?.data, error: null };
-  if ('context' in error && error.context instanceof Response) {
-    const body = await error.context.clone().json().catch(() => null);
-    if (error.context.status === 429) {
-      const seconds = Math.min(60, Math.max(1, Number(error.context.headers.get('Retry-After')) || 60));
-      limits.set(key, Date.now() + seconds * 1000);
-      return { data: null, error: new ClientRateLimitError(seconds) };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await client.functions.invoke('client-authorization', {
+      body: { action: action === 'order' ? 'order-media' : action, signingToken, ...fields }, signal,
+    });
+    if (!error) {
+      if (action !== 'order') return { data: data?.data, error: null };
+      try {
+        const rows = data?.data;
+        if (!Array.isArray(rows)) throw new Error('Invalid order response.');
+        const hydrated = [];
+        for (const row of rows) hydrated.push(await hydrateOrderMedia(client, row, `client:${signingToken.toLowerCase()}`, signal));
+        return { data: hydrated, error: null };
+      } catch (mediaError) {
+        if (attempt === 0 && mediaError instanceof MediaDownloadError && mediaError.refreshable) continue;
+        return { data: null, error: mediaError instanceof Error ? mediaError : new Error('Order images could not be loaded.') };
+      }
     }
-    if (typeof body?.error === 'string') return { data: null, error: new Error(body.error) };
+    if ('context' in error && error.context instanceof Response) {
+      const body = await error.context.clone().json().catch(() => null);
+      if (error.context.status === 429) {
+        const seconds = Math.min(60, Math.max(1, Number(error.context.headers.get('Retry-After')) || 60));
+        limits.set(key, Date.now() + seconds * 1000);
+        return { data: null, error: new ClientRateLimitError(seconds) };
+      }
+      if (typeof body?.error === 'string') return { data: null, error: new Error(body.error) };
+    }
+    return { data: null, error };
   }
-  return { data: null, error };
+  return { data: null, error: new MediaDownloadError() };
 }
