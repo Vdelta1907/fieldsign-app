@@ -1,19 +1,9 @@
-# SignForth — Gate 4 private media, stage 1
+# SignForth — dashboard pagination update
 
-**September 21 authorization correction:** `prepare-order-media` now uses a dedicated secret. If you already reached the failed preparation request, start with `docs/PREPARATION-AUTH-FIX.md`; no SQL needs repeating.
+September 22, 2026: start with **docs/DASHBOARD-PAGINATION.md** for the current targeted deployment. Run only `supabase/migrations/202609220001_dashboard_pagination.sql` before deploying the listed frontend files.
 
-This is the complete source for the existing reviewed SignForth project. **Start with `docs/PRIVATE-MEDIA-DEPLOYMENT.md`.** It contains the full numbered Supabase, GitHub, test and rollback instructions.
+This update adds 10-order batches, a clickable attention banner, newest-first category resets and declined orders under Pending. Only the files listed in the new guide need uploading to the existing GitHub repository.
 
-Deploy the new database migration and three named Edge Functions before uploading the frontend to GitHub. The guide identifies the exact files. Do not replay historical migrations or follow the older rate-limit deployment guide for this release: that milestone is already deployed.
+Private-media stage 1 and its authorization correction were already deployed and user-tested in the preceding checkpoint. The older private-media deployment and preparation-auth guides remain as history; do not repeat their migrations, preparation batches, Edge Function deployments or temporary-secret setup for pagination. The temporary diagnostic function and preparation secret were removed after the earlier tests.
 
-This stage creates hash-verified private copies for signed orders and uses them in client receipt and contractor PDF reads. Original signed rows and evidence remain untouched. Current logo resizing, iPhone layout, elastic dashboard, signing, payments and email verification behavior remain intact.
-
-New or unprepared orders retain their existing inline-media path. This is not completion of Gate 4 or a complete migration of future uploads. No production changes have been performed from this workspace.
-
-- `docs/PRIVATE-MEDIA-DEPLOYMENT.md`: numbered user instructions.
-- `docs/PRIVATE-MEDIA-RELEASE-NOTES.md`: changed files, validation and limits.
-- `supabase/dashboard-private-media/`: self-contained function files and read-only checks for the Supabase Dashboard.
-- `supabase/migrations/202609190001_private_signed_media.sql`: the ONLY new database migration to execute.
-- `docs/gate4-client-rate-limits-history.md`: previous release history, not today's deployment instructions.
-
-The archive contains source, tests and instructions; dependency folders, local credentials and build outputs are intentionally omitted. Existing production public environment variables must remain configured in Vercel.
+The pagination update has passed local tests/build/typecheck. Its hosted deployment and live acceptance checks remain pending. Full Gate 4 remains in progress. Keep existing environment variables, signing/payment flows, email verification and logo/iPhone behavior.

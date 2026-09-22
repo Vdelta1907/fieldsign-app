@@ -5,6 +5,11 @@ vi.mock('../src/lib/supabase', () => ({ supabase: { auth: { refreshSession: vi.f
 vi.mock('../src/lib/workspaceClient', () => ({ createWorkspaceClient: (userId: string) => {
   const channel = { on: () => channel, subscribe: () => channel };
   return {
+    rpc: () => ({ abortSignal: async () => ({ data: {
+      orders: [], summary: { allCount: 0, draftCount: 0, pendingCount: 0, signedCount: 0,
+        attentionCount: 0, paidCount: 0, totalApprovedRevenue: 0, totalPaidRevenue: 0 },
+      selected_count: 0, has_more: false, next_cursor: null,
+    }, error: null }) }),
     from: (table: string) => {
       const q: any = { select: () => q, eq: (key: string, value: string) => { mock.queries.push({ table, key, value }); return q; },
         is: () => q, order: () => q, abortSignal: () => table === 'contractor_profiles' ? q : Promise.resolve({ data: [], error: null }),

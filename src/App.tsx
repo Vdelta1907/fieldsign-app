@@ -1,5 +1,7 @@
+import { useDashboardOrders, matchesDashboardCategory } from './hooks/useDashboardOrders';
+import type { DashboardCategory } from './hooks/useDashboardOrders';
 import { loadContractorOrderMedia } from './lib/orderMedia';
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { useDashboardElasticity } from './hooks/useDashboardElasticity';
@@ -204,9 +206,7 @@ export default function App({ session, clientToken, isCurrent, onSession: setSes
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [clientLoadError, setClientLoadError] = useState('');
-  const [filterTab, setFilterTab] = useState<
-  'active' | 'draft' | 'pending' | 'signed' | null
->(null);
+  const [filterTab, setFilterTab] = useState<DashboardCategory | null>(null);
   const [profileState, setProfileState] = useState<{
   userId: string | null;
   value: ContractorProfile;
@@ -292,8 +292,13 @@ const profile: ContractorProfile =
   const [activeListeningField, setActiveListeningField] = useState<string | null>(null);
 
   // Database & Active Order State
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const dashboardUserId = session?.user.id;
+  const {
+    orders, setOrders, summary: dashboardSummary, selectedCount: selectedOrderCount,
+    hasMore: hasMoreOrders, loading: isLoadingOrders, loadingMore: isLoadingMoreOrders,
+    error: dashboardError, refresh: fetchDashboardOrders, loadMore: loadMoreOrders,
+    retry: retryDashboardOrders, cancel: cancelDashboardRequest, listRef: dashboardOrdersRef,
+  } = useDashboardOrders<OrderRecord>(supabase, dashboardUserId, filterTab, !isClientMode);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [currentSigningToken, setCurrentSigningToken] = useState<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -361,7 +366,7 @@ const signatureSubmissionIdRef =
   useRef<string | null>(null);
   const isDrawing = useRef(false);
   const handleTabToggle = (
-  tab: 'active' | 'draft' | 'pending' | 'signed'
+  tab: DashboardCategory
 ) => {
   setFilterTab(previous => previous === tab ? null : tab);
 };
@@ -536,6 +541,7 @@ const cancelOrder = async (
       ),
     );
 
+    void fetchDashboardOrders(true);
     alert(
       'Order cancelled. The client authorization link is no longer active.',
     );
@@ -568,6 +574,7 @@ const cancelOrder = async (
       const { error } = await supabase.rpc('archive_order', { p_order_id: orderId });
       if (error) throw error;
       setOrders(prev => prev.filter(o => o.id !== orderId));
+      void fetchDashboardOrders(true);
     } catch (err) {
       console.error("Failed to delete order:", err);
       alert("We couldn't archive this order. Please try again.");
@@ -1228,93 +1235,6 @@ useEffect(() => {
     window.clearInterval(validationInterval);
   };
 }, [isClientMode, session?.user.id]);
-const dashboardRequestId = useRef(0);
-const dashboardUserId = session?.user.id;
-const fetchDashboardOrders = useCallback(
-  async (silent = false): Promise<boolean> => {
-    if (!dashboardUserId || isClientMode) {
-      return false;
-    }
-
-    const requestId =
-      ++dashboardRequestId.current;
-
-    const controller = new AbortController();
-
-    const timeoutId = window.setTimeout(
-      () => controller.abort(),
-      12_000
-    );
-
-    if (!silent) setIsLoadingOrders(true);
-
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-  id,
-  order_type,
-  contractor_company,
-  contractor_license,
-  contractor_phone,
-  contractor_email,
-  custom_terms,
-  project_title,
-  client_name,
-  client_phone,
-  description,
-  cost,
-  status,
-cancelled_at,
-cancellation_reason,
-revision_number,
-  client_response_note,
-  client_responded_at,
-  last_sent_at,
-  payment_status,
-  require_payment_upfront,
-  signing_token,
-  signed_at,
-  signed_at_utc,
-  signer_name,
-  created_at
-`)
-        .eq('owner_id', dashboardUserId)
-        .is('archived_at', null)
-        .order('created_at', { ascending: false })
-        .abortSignal(controller.signal);
-
-      if (error) throw error;
-
-      if (requestId !== dashboardRequestId.current) {
-        return false;
-      }
-
-      setOrders((data || []) as OrderRecord[]);
-      return true;
-    } catch (error) {
-      if (requestId === dashboardRequestId.current) {
-        console.error('Dashboard refresh failed:', error);
-      }
-
-      // Preserve the existing dashboard if a request fails.
-      return false;
-    } finally {
-      window.clearTimeout(timeoutId);
-
-      if (requestId === dashboardRequestId.current) {
-        setIsLoadingOrders(false);
-      }
-    }
-  },
-  [dashboardUserId, isClientMode]
-);
-
-// Never retain one account's orders when the account changes.
-useEffect(() => {
-  setOrders([]);
-}, [dashboardUserId]);
-
 // Profile loading stays separate from live dashboard updates.
 useEffect(() => {
   if (!isClientMode && dashboardUserId) {
@@ -1436,7 +1356,7 @@ useEffect(() => {
   return () => {
     active = false;
     refreshQueued = false;
-    dashboardRequestId.current += 1;
+    cancelDashboardRequest();
 
     window.clearInterval(backupTimer);
     document.removeEventListener('visibilitychange', onReturn);
@@ -1447,7 +1367,7 @@ useEffect(() => {
 
     void supabase.removeChannel(channel);
   };
-}, [dashboardUserId, isClientMode, view, fetchDashboardOrders]);
+}, [dashboardUserId, isClientMode, view, fetchDashboardOrders, cancelDashboardRequest]);
   
 const loadOrderFromDb = async (signingToken: string) => {
   setClientLoadError('');
@@ -2946,36 +2866,9 @@ useEffect(() => {
   clientResponseSubmitted,
   isSubmittingClientResponse
 ]);
-  const displayedOrders = filterTab === null
-  ? []
-  : orders.filter(order => {
-      if (filterTab === 'draft') return order.status === 'draft';
-      if (filterTab === 'pending') {
-  return (
-    order.status === 'pending' ||
-    order.status === 'changes_requested'
-  );
-}
-      if (filterTab === 'signed') return order.status === 'signed';
-      return true;
-    });
-
-const draftCount = orders.filter(
-  order => order.status === 'draft'
-).length;
-  
-  const totalApprovedRevenue = orders
-    .filter(o => o.status === 'signed')
-    .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
-  const totalPaidRevenue = orders
-    .filter(o => o.payment_status === 'paid')
-    .reduce((sum, o) => sum + (Number(o.cost) || 0), 0);
-  const signedCount = orders.filter(o => o.status === 'signed').length;
-  const pendingCount = orders.filter(
-  (o) =>
-    o.status === 'pending' ||
-    o.status === 'changes_requested'
-).length;
+  const displayedOrders = orders.filter(order => matchesDashboardCategory(order.status, filterTab));
+  const { allCount, draftCount, pendingCount, signedCount, attentionCount, paidCount,
+    totalApprovedRevenue, totalPaidRevenue } = dashboardSummary;
 
 useEffect(() => {
   if (!isClientMode || !currentSigningToken) return;
@@ -3015,16 +2908,6 @@ useEffect(() => {
     window.removeEventListener('focus', handleWindowFocus);
   };
 }, [isClientMode, currentSigningToken]);
-const attentionCount = orders.filter(
-  (order) =>
-    order.status === 'changes_requested' ||
-    order.status === 'declined'
-).length;
-
-const paidCount = orders.filter(
-  (order) => order.payment_status === 'paid'
-).length;
-
   if (!isClientMode && !profileReady) return <main className="auth-shell"><section className="auth-card">
     <h1>Loading your workspace</h1>
     <p role={profileError ? 'alert' : 'status'}>{profileError || 'Loading your business profile…'}</p>
@@ -3613,9 +3496,20 @@ const handleClientResponse = async (
               </div>
             </div>
 
+          {dashboardError && <div role="alert" style={{ color: '#fca5a5', marginBottom: '12px', fontSize: '12px' }}>
+            {dashboardError}{' '}
+            <button type="button" onClick={() => void retryDashboardOrders()} disabled={isLoadingOrders}>Retry</button>
+          </div>}
           {attentionCount > 0 && (
-  <div
+  <button
+    type="button"
+    onClick={() => handleTabToggle('attention')}
+    aria-expanded={filterTab === 'attention'}
+    aria-controls="dashboard-orders-list"
     style={{
+      width: '100%', textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer',
+      outlineOffset: '3px',
+      boxShadow: filterTab === 'attention' ? 'inset 0 0 0 1px #38bdf8' : undefined,
       marginBottom: '14px',
       padding: '11px 12px',
       border: '1px solid rgba(56, 189, 248, 0.45)',
@@ -3629,7 +3523,7 @@ const handleClientResponse = async (
   >
     ⚠ {attentionCount}{' '}
     {attentionCount === 1 ? 'client response requires' : 'client responses require'} your attention.
-  </div>
+  </button>
 )}
            {/* Collapsible / Accordion Status Buttons */}
 <div
@@ -3647,7 +3541,7 @@ const handleClientResponse = async (
       {
         key: 'active',
         label: 'All Orders',
-        count: orders.length
+        count: allCount
       },
       {
         key: 'draft',
@@ -3671,6 +3565,7 @@ const handleClientResponse = async (
       type="button"
       onClick={() => handleTabToggle(tab.key)}
       aria-expanded={filterTab === tab.key}
+      aria-controls="dashboard-orders-list"
       aria-label={`${tab.label}: ${tab.count} orders`}
       style={{
         width: '100%',
@@ -3703,19 +3598,23 @@ const handleClientResponse = async (
   ))}
 </div>
             </div>
-            <div className="dashboard-orders-scroll" aria-label="Orders list">
+            <div ref={dashboardOrdersRef} id="dashboard-orders-list" className="dashboard-orders-scroll" aria-label="Orders list" aria-busy={isLoadingOrders}>
+            {filterTab === 'attention' && <h4 style={{ color: '#bae6fd', fontSize: '13px', marginBottom: '10px' }}>Needs attention</h4>}
+            {filterTab !== null && isLoadingOrders && displayedOrders.length === 0 && (
+              <p role="status" style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>Loading orders…</p>
+            )}
             {filterTab === null && (
               <div style={{ textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
                 Tap any status category above to expand orders ▼
               </div>
             )}
 
-            {filterTab !== null && displayedOrders.length === 0 && !isLoadingOrders && (
+            {filterTab !== null && displayedOrders.length === 0 && !isLoadingOrders && !dashboardError && (
               <div className="card-dark" style={{ textAlign: 'center', padding: '36px 16px' }}>
                 <span style={{ fontSize: '32px' }}>📝</span>
                 <h4 style={{ fontSize: '15px', fontWeight: 700, marginTop: '8px' }}>No orders found</h4>
                 <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-                  No orders match this status.
+                  {filterTab === 'attention' ? 'No client responses currently need attention.' : 'No orders match this status.'}
                 </p>
               </div>
             )}
@@ -4241,6 +4140,20 @@ o.status === 'changes_requested' ? (
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {filterTab !== null && displayedOrders.length > 0 && (
+              <div style={{ textAlign: 'center', padding: '16px 4px 4px' }}>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '10px' }}>
+                  {hasMoreOrders
+                    ? `Showing ${displayedOrders.length} of ${selectedOrderCount} orders`
+                    : `Showing all ${displayedOrders.length} orders`}
+                </p>
+                {hasMoreOrders && <button type="button" className="btn-secondary"
+                  disabled={isLoadingOrders} onClick={() => void loadMoreOrders()}
+                  style={{ margin: 0, minHeight: '44px' }}>
+                  {isLoadingMoreOrders ? 'Loading…' : 'Load more'}
+                </button>}
               </div>
             )}
             </div>
