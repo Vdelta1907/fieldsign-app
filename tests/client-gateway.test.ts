@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { expect, test, vi } from 'vitest';
 import * as limits from '../supabase/functions/_shared/client-limits';
+import * as futureMedia from '../supabase/functions/_shared/future-media';
 
 const token = 'abcdefab-1234-4234-8234-123456789abc';
 const submissionId = '11111111-1234-4234-8234-123456789abc';
@@ -15,7 +16,7 @@ function load(name: string, rpc: ReturnType<typeof vi.fn>) {
   vm.runInNewContext(code, {
     exports: {}, Response, URL, crypto: webcrypto, console: { error: vi.fn() },
     Deno: { serve: (fn: typeof handler) => { handler = fn; }, env: { get: () => 'https://signforth.example' } },
-    require: (id: string) => id.includes('supabase-js') ? { createClient: () => ({ rpc }) } : limits,
+    require: (id: string) => id.includes('supabase-js') ? { createClient: () => ({ rpc }) } : id.includes('future-media') ? futureMedia : limits,
   });
   return handler;
 }
@@ -62,7 +63,7 @@ test.each(['client-authorization', 'submit-signature'])('%s returns 429 with Ret
 
 test('signature retry keeps the submission ID, evidence inputs, original timestamp and hash', async () => {
   const result = { signed_at_utc: '2026-09-18T12:00:00Z', payment_status: 'unpaid', document_hash: 'original-hash', already_recorded: true };
-  const rpc = vi.fn(async (name: string) => ({ data: name === 'signforth_consume_client_limit' ? { allowed: true } : result, error: null }));
+  const rpc = vi.fn(async (name: string) => ({ data: name === 'signforth_consume_client_limit' ? { allowed: true } : name === 'signforth_uploads_enabled' ? false : result, error: null }));
   const handler = load('submit-signature', rpc);
   const response = await handler(request(signature, { 'cf-connecting-ip': '192.0.2.1', 'user-agent': 'test browser' }));
   expect(await response.json()).toEqual({ signedAtUtc: result.signed_at_utc, paymentStatus: 'unpaid', documentHash: 'original-hash', alreadyRecorded: true });

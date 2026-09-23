@@ -1,0 +1,1677 @@
+{
+  "review": "new-upload-storage-schema-v1",
+  "tables": [
+    {
+      "name": "contractor_profiles",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "company_name",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "license_number",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "logo_data_url",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "custom_terms",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "require_payment_upfront",
+          "type": "boolean",
+          "not_null": true
+        },
+        {
+          "name": "stripe_account_id",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "stripe_charges_enabled",
+          "type": "boolean",
+          "not_null": true
+        },
+        {
+          "name": "stripe_details_submitted",
+          "type": "boolean",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "use_default_terms",
+          "type": "boolean",
+          "not_null": false
+        }
+      ],
+      "triggers": null,
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "contractor_profiles_pkey",
+          "definition": "PRIMARY KEY (user_id)"
+        },
+        {
+          "name": "contractor_profiles_stripe_account_id_key",
+          "definition": "UNIQUE (stripe_account_id)"
+        },
+        {
+          "name": "contractor_profiles_user_id_fkey",
+          "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "order_authorization_evidence",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "order_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "owner_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "revision_number",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "signature_submission_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "snapshot_version",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "evidence_snapshot",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "document_hash",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "hash_algorithm",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "signer_name",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "signed_at_utc",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "signing_ip",
+          "type": "inet",
+          "not_null": true
+        },
+        {
+          "name": "signed_user_agent",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        }
+      ],
+      "triggers": [
+        {
+          "name": "prevent_authorization_evidence_mutation",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER prevent_authorization_evidence_mutation BEFORE DELETE OR UPDATE ON public.order_authorization_evidence FOR EACH ROW EXECUTE FUNCTION prevent_authorization_evidence_mutation()"
+        }
+      ],
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "order_authorization_evidence_document_hash_check",
+          "definition": "CHECK ((document_hash ~ '^[0-9a-f]{64}$'::text))"
+        },
+        {
+          "name": "order_authorization_evidence_evidence_snapshot_check",
+          "definition": "CHECK ((jsonb_typeof(evidence_snapshot) = 'object'::text))"
+        },
+        {
+          "name": "order_authorization_evidence_hash_algorithm_check",
+          "definition": "CHECK ((hash_algorithm = 'SHA-256'::text))"
+        },
+        {
+          "name": "order_authorization_evidence_order_id_fkey",
+          "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE RESTRICT"
+        },
+        {
+          "name": "order_authorization_evidence_order_unique",
+          "definition": "UNIQUE (order_id)"
+        },
+        {
+          "name": "order_authorization_evidence_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "order_authorization_evidence_revision_number_check",
+          "definition": "CHECK ((revision_number >= 1))"
+        },
+        {
+          "name": "order_authorization_evidence_signed_user_agent_check",
+          "definition": "CHECK (((char_length(TRIM(BOTH FROM signed_user_agent)) >= 1) AND (char_length(TRIM(BOTH FROM signed_user_agent)) <= 512)))"
+        },
+        {
+          "name": "order_authorization_evidence_signer_name_check",
+          "definition": "CHECK (((char_length(TRIM(BOTH FROM signer_name)) >= 1) AND (char_length(TRIM(BOTH FROM signer_name)) <= 120)))"
+        },
+        {
+          "name": "order_authorization_evidence_snapshot_version_check",
+          "definition": "CHECK ((snapshot_version >= 1))"
+        },
+        {
+          "name": "order_authorization_evidence_submission_unique",
+          "definition": "UNIQUE (signature_submission_id)"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "order_revisions",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "order_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "revision_number",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "snapshot",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "revision_reason",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        }
+      ],
+      "triggers": null,
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "order_revisions_created_by_fkey",
+          "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+        },
+        {
+          "name": "order_revisions_number_positive",
+          "definition": "CHECK ((revision_number >= 1))"
+        },
+        {
+          "name": "order_revisions_order_id_fkey",
+          "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "order_revisions_order_version_unique",
+          "definition": "UNIQUE (order_id, revision_number)"
+        },
+        {
+          "name": "order_revisions_pkey",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "orders",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "order_type",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "contractor_company",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "contractor_logo",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "contractor_license",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "contractor_phone",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "contractor_email",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "custom_terms",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "project_title",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "client_name",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "client_phone",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "cost",
+          "type": "numeric(10,2)",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "payment_status",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "payment_link",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "photo_data",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "photo_data_2",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "signature_data",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "signed_at",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "owner_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "signing_token",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "signing_expires_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "require_payment_upfront",
+          "type": "boolean",
+          "not_null": true
+        },
+        {
+          "name": "signer_name",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "consent_text",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "signed_at_utc",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "signed_user_agent",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "stripe_checkout_session_id",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "stripe_payment_intent_id",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "revision_number",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "client_response_note",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "client_responded_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "last_sent_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "client_submission_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "last_publish_submission_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "client_response_submission_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "signature_submission_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "cancellation_reason",
+          "type": "text",
+          "not_null": false
+        }
+      ],
+      "triggers": [
+        {
+          "name": "fieldsign_order_activity",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER fieldsign_order_activity AFTER INSERT OR UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION fieldsign_record_order_activity()"
+        },
+        {
+          "name": "fieldsign_signed_order_immutable",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER fieldsign_signed_order_immutable BEFORE DELETE OR UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION fieldsign_protect_signed_order()"
+        }
+      ],
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "orders_cost_positive",
+          "definition": "CHECK ((((cost)::text <> ALL (ARRAY['NaN'::text, 'Infinity'::text, '-Infinity'::text])) AND (((status = 'draft'::text) AND (cost >= (0)::numeric)) OR ((status <> 'draft'::text) AND (cost > (0)::numeric))))) NOT VALID"
+        },
+        {
+          "name": "orders_non_draft_details_required",
+          "definition": "CHECK (((status = 'draft'::text) OR ((NULLIF(btrim(contractor_company), ''::text) IS NOT NULL) AND (NULLIF(btrim(project_title), ''::text) IS NOT NULL) AND (NULLIF(btrim(client_name), ''::text) IS NOT NULL) AND (NULLIF(btrim(client_phone), ''::text) IS NOT NULL) AND (NULLIF(btrim(description), ''::text) IS NOT NULL) AND (order_type IS NOT NULL)))) NOT VALID"
+        },
+        {
+          "name": "orders_order_type_valid",
+          "definition": "CHECK ((order_type = ANY (ARRAY['Change Order'::text, 'New Job Agreement'::text]))) NOT VALID"
+        },
+        {
+          "name": "orders_owner_id_fkey",
+          "definition": "FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "name": "orders_payment_status_valid",
+          "definition": "CHECK ((payment_status = ANY (ARRAY['unpaid'::text, 'pending'::text, 'paid'::text, 'failed'::text, 'refunded'::text]))) NOT VALID"
+        },
+        {
+          "name": "orders_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "orders_revision_number_positive",
+          "definition": "CHECK ((revision_number >= 1))"
+        },
+        {
+          "name": "orders_status_valid",
+          "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'pending'::text, 'changes_requested'::text, 'declined'::text, 'signed'::text, 'cancelled'::text])))"
+        },
+        {
+          "name": "orders_stripe_checkout_session_id_key",
+          "definition": "UNIQUE (stripe_checkout_session_id)"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "retired_signing_links",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "order_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "signing_token",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "retired_reason",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        }
+      ],
+      "triggers": null,
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "retired_signing_links_order_id_fkey",
+          "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "retired_signing_links_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "retired_signing_links_retired_reason_check",
+          "definition": "CHECK ((retired_reason = ANY (ARRAY['superseded'::text, 'archived'::text])))"
+        },
+        {
+          "name": "retired_signing_links_signing_token_key",
+          "definition": "UNIQUE (signing_token)"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "media_prepared_orders",
+      "schema": "signforth_private",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "prepared_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        }
+      ],
+      "triggers": null,
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "media_prepared_orders_order_id_fkey",
+          "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+        },
+        {
+          "name": "media_prepared_orders_pkey",
+          "definition": "PRIMARY KEY (order_id)"
+        }
+      ],
+      "rls_enabled": true
+    },
+    {
+      "name": "order_media",
+      "schema": "signforth_private",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "owner_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "field_name",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "source_hash",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "byte_length",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "object_path",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        }
+      ],
+      "triggers": null,
+      "rls_forced": false,
+      "constraints": [
+        {
+          "name": "order_media_byte_length_check",
+          "definition": "CHECK (((byte_length >= 1) AND (byte_length <= 8000000)))"
+        },
+        {
+          "name": "order_media_field_name_check",
+          "definition": "CHECK ((field_name = ANY (ARRAY['contractor_logo'::text, 'photo_data'::text, 'photo_data_2'::text, 'signature_data'::text])))"
+        },
+        {
+          "name": "order_media_order_id_fkey",
+          "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+        },
+        {
+          "name": "order_media_pkey",
+          "definition": "PRIMARY KEY (order_id, field_name)"
+        },
+        {
+          "name": "order_media_source_hash_check",
+          "definition": "CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text))"
+        }
+      ],
+      "rls_enabled": true
+    }
+  ],
+  "policies": [
+    {
+      "cmd": "SELECT",
+      "qual": "(EXISTS ( SELECT 1\n   FROM orders\n  WHERE ((orders.id = order_revisions.order_id) AND (orders.owner_id = auth.uid()))))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "order_revisions",
+      "permissive": "PERMISSIVE",
+      "policyname": "Contractors can view their order revisions",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(user_id = auth.uid())",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "contractor_profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "Contractors can view their profile",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "contractor_profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "contractor_profiles_owner_insert",
+      "schemaname": "public",
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND (stripe_account_id IS NULL) AND (stripe_charges_enabled = false) AND (stripe_details_submitted = false))"
+    },
+    {
+      "cmd": "UPDATE",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "contractor_profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "contractor_profiles_owner_update",
+      "schemaname": "public",
+      "with_check": "(user_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "cmd": "ALL",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "contractor_profiles",
+      "permissive": "RESTRICTIVE",
+      "policyname": "signforth_profile_account_boundary",
+      "schemaname": "public",
+      "with_check": "(user_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(owner_id = auth.uid())",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "orders",
+      "permissive": "PERMISSIVE",
+      "policyname": "Contractors can view their orders",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "orders",
+      "permissive": "PERMISSIVE",
+      "policyname": "orders_owner_create_draft",
+      "schemaname": "public",
+      "with_check": "((owner_id = ( SELECT auth.uid() AS uid)) AND (status = 'draft'::text) AND (payment_status = 'unpaid'::text) AND (archived_at IS NULL) AND (revision_number = 1) AND (payment_link IS NULL) AND (signature_data IS NULL) AND (signed_at IS NULL) AND (signer_name IS NULL) AND (consent_text IS NULL) AND (signed_at_utc IS NULL) AND (signed_user_agent IS NULL) AND (stripe_checkout_session_id IS NULL) AND (stripe_payment_intent_id IS NULL) AND (client_submission_id IS NULL) AND (last_publish_submission_id IS NULL) AND (client_response_note IS NULL) AND (client_responded_at IS NULL) AND (client_response_submission_id IS NULL) AND (signature_submission_id IS NULL) AND (last_sent_at IS NULL) AND (cancelled_at IS NULL) AND (cancellation_reason IS NULL) AND (signing_expires_at <= now()))"
+    },
+    {
+      "cmd": "UPDATE",
+      "qual": "((owner_id = ( SELECT auth.uid() AS uid)) AND (status = 'draft'::text) AND (archived_at IS NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "orders",
+      "permissive": "PERMISSIVE",
+      "policyname": "orders_owner_update_draft",
+      "schemaname": "public",
+      "with_check": "((owner_id = ( SELECT auth.uid() AS uid)) AND (status = 'draft'::text) AND (archived_at IS NULL))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(owner_id = ( SELECT auth.uid() AS uid))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "order_authorization_evidence",
+      "permissive": "PERMISSIVE",
+      "policyname": "order_authorization_evidence_owner_read",
+      "schemaname": "public",
+      "with_check": null
+    }
+  ],
+  "table_grants": [
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_authorization_evidence",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_authorization_evidence",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_authorization_evidence",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "order_authorization_evidence",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_revisions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_revisions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "order_revisions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "retired_signing_links",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "retired_signing_links",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "retired_signing_links",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    }
+  ],
+  "column_grants": [
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "require_payment_upfront",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "require_payment_upfront",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "custom_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "custom_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "email",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "email",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "license_number",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "license_number",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "logo_data_url",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "logo_data_url",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "user_id",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "user_id",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "use_default_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "use_default_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "updated_at",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "updated_at",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "company_name",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "contractor_profiles",
+      "column_name": "company_name",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "updated_at",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "updated_at",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "require_payment_upfront",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "require_payment_upfront",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "project_title",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "project_title",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "photo_data_2",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "photo_data_2",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "photo_data",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "photo_data",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "owner_id",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "order_type",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "order_type",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "description",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "description",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "custom_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "custom_terms",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "cost",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "cost",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_logo",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_logo",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_license",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_license",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_email",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_email",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_company",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "contractor_company",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "client_phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "client_phone",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "client_name",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "orders",
+      "column_name": "client_name",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT"
+    }
+  ],
+  "function_contracts": [
+    {
+      "name": "fieldsign_create_order",
+      "returns": "jsonb",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_client_submission_id uuid, p_order_type text, p_contractor_company text, p_contractor_logo text, p_contractor_license text, p_contractor_phone text, p_contractor_email text, p_custom_terms text, p_project_title text, p_client_name text, p_client_phone text, p_description text, p_cost numeric, p_photo_data text, p_photo_data_2 text, p_require_payment_upfront boolean",
+      "anon_execute": false,
+      "definition_md5": "c102af121e285b7e62619670b14e9d3b",
+      "security_definer": true,
+      "authenticated_execute": true
+    },
+    {
+      "name": "fieldsign_protect_signed_order",
+      "returns": "trigger",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "",
+      "anon_execute": false,
+      "definition_md5": "004671f9bcde6967953a110e469239ae",
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "fieldsign_publish_revision",
+      "returns": "jsonb",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_order_id uuid, p_expected_signing_token uuid, p_publish_submission_id uuid, p_order_type text, p_contractor_company text, p_contractor_logo text, p_contractor_license text, p_contractor_phone text, p_contractor_email text, p_custom_terms text, p_project_title text, p_client_name text, p_client_phone text, p_description text, p_cost numeric, p_photo_data text, p_photo_data_2 text, p_require_payment_upfront boolean",
+      "anon_execute": false,
+      "definition_md5": "1ea2684f45a05839657d8b485f5a3e3a",
+      "security_definer": true,
+      "authenticated_execute": true
+    },
+    {
+      "name": "fieldsign_send_for_review",
+      "returns": "jsonb",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_order_id uuid",
+      "anon_execute": false,
+      "definition_md5": "f5680a3b3a84872798a2d6d4cd8afeb8",
+      "security_definer": true,
+      "authenticated_execute": true
+    },
+    {
+      "name": "fieldsign_sign_order_with_evidence",
+      "returns": "TABLE(signed_at_utc timestamp with time zone, payment_status text, already_recorded boolean, document_hash text)",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_token uuid, p_signer_name text, p_signature_data text, p_consent_text text, p_payment_requested boolean, p_submission_id uuid, p_signing_ip inet, p_user_agent text",
+      "anon_execute": false,
+      "definition_md5": "9ed78e590f0a7a4d572ba27223fe0fd6",
+      "security_definer": true,
+      "authenticated_execute": false
+    },
+    {
+      "name": "fieldsign_start_revision",
+      "returns": "jsonb",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_order_id uuid, p_revision_reason text",
+      "anon_execute": false,
+      "definition_md5": "f99ab4da85ef8e4b308abb377ef6e118",
+      "security_definer": true,
+      "authenticated_execute": true
+    },
+    {
+      "name": "prevent_authorization_evidence_mutation",
+      "returns": "trigger",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "",
+      "anon_execute": false,
+      "definition_md5": "5e3a9960998d3f8b1f53b3fa2d99488d",
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "signforth_dashboard_page",
+      "returns": "jsonb",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "arguments": "p_category text, p_before_created_at timestamp with time zone, p_before_id uuid",
+      "anon_execute": false,
+      "definition_md5": "0e3861a26f83caf8b180255e62c6ef04",
+      "security_definer": false,
+      "authenticated_execute": true
+    }
+  ]
+}

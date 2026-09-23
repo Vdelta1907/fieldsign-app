@@ -1,3 +1,4 @@
+import { uploadPrivateImage, resolvePrivateImages } from './lib/privateUploads';
 import { useDashboardOrders, matchesDashboardCategory } from './hooks/useDashboardOrders';
 import type { DashboardCategory } from './hooks/useDashboardOrders';
 import { loadContractorOrderMedia } from './lib/orderMedia';
@@ -648,6 +649,16 @@ useEffect(() => {
     return;
   }
 
+  let loadedLogo = data?.logo_data_url || '';
+  try {
+    [loadedLogo] = await resolvePrivateImages(supabase, [loadedLogo]);
+  } catch {
+    if (mounted.current && isCurrent() && activeProfileUserIdRef.current === userId && requestId === profileLoadRequestId.current) {
+      setProfileError('Your logo could not be loaded. Retry before editing your profile.');
+    }
+    return;
+  }
+  if (!mounted.current || !isCurrent() || activeProfileUserIdRef.current !== userId || requestId !== profileLoadRequestId.current) return;
   setProfileReady(true);
   // New accounts may not have saved a profile yet.
   if (!data) {
@@ -675,7 +686,7 @@ useEffect(() => {
       licenseNumber: data.license_number ?? '',
       phone: data.phone ?? '',
       email: data.email ?? userEmail,
-      logoDataUrl: data.logo_data_url ?? '',
+      logoDataUrl: loadedLogo,
       customTerms: savedTerms,
       useDefaultTerms,
       requirePaymentUpfront:
@@ -687,6 +698,14 @@ useEffect(() => {
         Boolean(data.stripe_details_submitted)
     }
   });
+};
+
+const prepareOrderImages = async () => {
+  const logo = await uploadPrivateImage(supabase, profile.logoDataUrl || BRANDING.defaultLogo);
+  const photo1 = await uploadPrivateImage(supabase, photoData1 || null);
+  const photo2 = await uploadPrivateImage(supabase, photoData2 || null);
+  if (!isCurrent()) throw new Error('Your session changed. Sign in again.');
+  return { logo, photo1, photo2 };
 };
 
 const persistContractorProfile = async () => {
@@ -701,6 +720,8 @@ const persistContractorProfile = async () => {
     );
   }
 
+  const storedLogo = await uploadPrivateImage(supabase, profile.logoDataUrl || null);
+  if (!isCurrent()) throw new Error('Your session changed. Sign in again.');
   const { error } = await supabase
     .from('contractor_profiles')
     .upsert(
@@ -712,7 +733,7 @@ const persistContractorProfile = async () => {
         phone: profile.phone.trim() || null,
         email:
           profile.email.trim() || session.user.email || null,
-        logo_data_url: profile.logoDataUrl || null,
+        logo_data_url: storedLogo,
 
         // Preserve the custom draft even while default terms are selected.
         custom_terms: profile.customTerms,
@@ -1808,6 +1829,9 @@ const exitOrderEditor = () => {
       );
     }
 
+    const [loadedPhoto1, loadedPhoto2] = await resolvePrivateImages(supabase, [detailedOrder.photo_data, detailedOrder.photo_data_2]);
+    if (!isCurrent()) return;
+
     activeSigningToken =
       detailedOrder.signing_token ||
       activeSigningToken;
@@ -1833,10 +1857,10 @@ const exitOrderEditor = () => {
     setDescription(detailedOrder.description);
     setCost(String(detailedOrder.cost));
     setPhotoData1(
-      detailedOrder.photo_data || ''
+      loadedPhoto1
     );
     setPhotoData2(
-      detailedOrder.photo_data_2 || ''
+      loadedPhoto2
     );
 
     setView('contractor');
@@ -1899,11 +1923,12 @@ const exitOrderEditor = () => {
   setIsSaving(true);
 
   try {
+    const storedImages = await prepareOrderImages();
     const draftPayload = {
       order_type: orderType,
       contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
+      contractor_logo: storedImages.logo,
       contractor_license: profile.licenseNumber || null,
       contractor_phone: profile.phone || null,
       contractor_email: profile.email || null,
@@ -1913,8 +1938,8 @@ const exitOrderEditor = () => {
       client_phone: clientPhone.trim(),
       description: description.trim(),
       cost: draftCost,
-      photo_data: photoData1 || null,
-      photo_data_2: photoData2 || null,
+      photo_data: storedImages.photo1,
+      photo_data_2: storedImages.photo2,
       require_payment_upfront: profile.requirePaymentUpfront,
       updated_at: new Date().toISOString()
     };
@@ -2104,6 +2129,7 @@ const exitOrderEditor = () => {
   try {
     
 
+    const storedImages = await prepareOrderImages();
     let savedOrder: OrderRecord;
 
     if (editingOrderId) {
@@ -2128,7 +2154,7 @@ const exitOrderEditor = () => {
       p_order_type: orderType,
       p_contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      p_contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
+      p_contractor_logo: storedImages.logo,
       p_contractor_license:
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
@@ -2139,8 +2165,8 @@ const exitOrderEditor = () => {
       p_client_phone: clientPhone.trim(),
       p_description: description.trim(),
       p_cost: parsedCost,
-      p_photo_data: photoData1 || null,
-      p_photo_data_2: photoData2 || null,
+      p_photo_data: storedImages.photo1,
+      p_photo_data_2: storedImages.photo2,
       p_require_payment_upfront:
         profile.requirePaymentUpfront
     });
@@ -2174,7 +2200,7 @@ const exitOrderEditor = () => {
       p_order_type: orderType,
       p_contractor_company:
         profile.companyName.trim() || 'FieldSign Contractor',
-      p_contractor_logo: profile.logoDataUrl || BRANDING.defaultLogo,
+      p_contractor_logo: storedImages.logo,
       p_contractor_license:
         profile.licenseNumber || null,
       p_contractor_phone: profile.phone || null,
@@ -2185,8 +2211,8 @@ const exitOrderEditor = () => {
       p_client_phone: clientPhone.trim(),
       p_description: description.trim(),
       p_cost: parsedCost,
-      p_photo_data: photoData1 || null,
-      p_photo_data_2: photoData2 || null,
+      p_photo_data: storedImages.photo1,
+      p_photo_data_2: storedImages.photo2,
       p_require_payment_upfront:
         profile.requirePaymentUpfront
     });

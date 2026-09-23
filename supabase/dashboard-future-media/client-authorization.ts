@@ -1,4 +1,7 @@
-// GENERATED: run node scripts/build-private-media-dashboard.mjs after editing shared/source functions.
+// GENERATED: node scripts/build-future-media-dashboard.mjs
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+
+// _shared/client-limits.ts
 export class ClientRequestError extends Error {
   constructor(message: string, public status: number, public retryAfter = 0) { super(message); }
 }
@@ -47,7 +50,7 @@ export async function enforceClientLimit(admin: LimitClient, token: string, kind
   }
 }
 
-import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+// _shared/order-media.ts
 
 export const MEDIA_BUCKET = 'signforth-order-media-v1';
 export const MEDIA_FIELDS = ['contractor_logo', 'photo_data', 'photo_data_2', 'signature_data'] as const;
@@ -134,6 +137,76 @@ export async function inlineOrderMedia(admin: SupabaseClient, order: Record<stri
   return result;
 }
 
+// _shared/future-media.ts
+
+export function validateImageSource(source: unknown, signature = false): { bytes: Uint8Array; mime: string } {
+  if (typeof source !== 'string' || source.length > (signature ? 750_000 : 1_500_000)) {
+    throw new ClientRequestError('The image is too large or invalid.', 400);
+  }
+  const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/.exec(source);
+  if (!match || (signature && match[1] !== 'image/png')) throw new ClientRequestError('Use a PNG or JPEG image.', 400);
+  let raw: string;
+  try { raw = atob(match[2]); } catch { throw new ClientRequestError('The image is invalid.', 400); }
+  if (btoa(raw) !== match[2]) throw new ClientRequestError('The image encoding is invalid.', 400);
+  const isPng = raw.startsWith('\x89PNG\r\n\x1a\n') && raw.length >= 33 && raw.slice(12, 16) === 'IHDR';
+  const isJpeg = raw.startsWith('\xff\xd8\xff') && raw.endsWith('\xff\xd9');
+  if (match[1] === 'image/png' ? !isPng : !isJpeg) throw new ClientRequestError('The image format is invalid.', 400);
+  const bytes = Uint8Array.from(raw, char => char.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  let width = 0; let height = 0;
+  if (isPng) {
+    width = view.getUint32(16); height = view.getUint32(20);
+  } else {
+    // Find a JPEG frame header before compressed scan data; all reads stay bounded.
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset++] !== 255) break;
+      while (offset < bytes.length && bytes[offset] === 255) offset++;
+      const marker = bytes[offset++];
+      if (marker === 0xda || marker === 0xd9 || offset + 2 > bytes.length) break;
+      const length = view.getUint16(offset);
+      if (length < 2 || offset + length > bytes.length) break;
+      if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
+        if (length < 8) break;
+        height = view.getUint16(offset + 3); width = view.getUint16(offset + 5); break;
+      }
+      offset += length;
+    }
+  }
+  if (width < 1 || height < 1 || width > 8192 || height > 8192 || width * height > 16_000_000) {
+    throw new ClientRequestError('The image dimensions are invalid or too large.', 400);
+  }
+  return { bytes: new TextEncoder().encode(source), mime: match[1] };
+}
+
+export async function uploadsEnabled(admin: SupabaseClient): Promise<boolean> {
+  const { data, error } = await admin.rpc('signforth_uploads_enabled');
+  if (error || typeof data !== 'boolean') throw new Error('Unable to read upload configuration');
+  return data;
+}
+
+export async function storeVerifiedUpload(admin: SupabaseClient, owner: string, source: string, signature = false): Promise<string> {
+  const { bytes, mime } = validateImageSource(source, signature);
+  const hash = await mediaHash(bytes);
+  const reference = `sfmedia:v1:${hash}`;
+  // Only this service-verified registry can authorize reuse. Caller-supplied hashes are never trusted.
+  const { data: existing, error: existingError } = await admin.rpc('signforth_resolve_uploads', { p_owner: owner, p_sources: [reference] });
+  if (!existingError && Array.isArray(existing) && existing.length === 1 && existing[0].byteLength === bytes.length) return reference;
+  const storage = admin.storage.from(MEDIA_BUCKET);
+  const path = `${owner}/${hash}.txt`;
+  const { error: uploadError } = await storage.upload(path, bytes, { contentType: 'text/plain', cacheControl: '0', upsert: false });
+  if (uploadError && !['400','409','Duplicate','ResourceAlreadyExists'].includes(String(uploadError.statusCode)) &&
+      !('code' in uploadError && ['Duplicate','ResourceAlreadyExists'].includes(String(uploadError.code)))) throw new Error('Media upload failed');
+  const { data: stored, error: downloadError } = await storage.download(path);
+  if (downloadError || !stored) throw new Error('Media verification failed');
+  const check = new Uint8Array(await stored.arrayBuffer());
+  if (check.length !== bytes.length || await mediaHash(check) !== hash) throw new Error('Media verification failed');
+  const { data, error } = await admin.rpc('signforth_register_upload', { p_owner: owner, p_hash: hash, p_bytes: bytes.length, p_mime: mime });
+  if (error || data !== reference) throw new Error('Media registration failed');
+  return reference;
+}
+
+// client-authorization/index.ts
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const appUrl = Deno.env
@@ -201,27 +274,53 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: getCorsHeaders(origin) });
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405, origin);
   try {
-    const authorization = request.headers.get('authorization') || '';
-    if (!authorization.startsWith('Bearer ')) return jsonResponse({ error: 'Sign in to view this order.' }, 401, origin);
+    const body = await readClientBody(request, 16_384);
+    const { action, signingToken } = body;
+    if (typeof signingToken !== 'string' || !uuidPattern.test(signingToken) ||
+        typeof action !== 'string' || !['order', 'order-media', 'state', 'respond'].includes(action)) {
+      throw new ClientRequestError('Invalid authorization request.', 400);
+    }
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: identity, error: authError } = await admin.auth.getUser(authorization.slice(7));
-    if (authError || !identity.user) return jsonResponse({ error: 'Sign in to view this order.' }, 401, origin);
-    const body = await readClientBody(request, 4096);
-    if (typeof body.orderId !== 'string' || !uuidPattern.test(body.orderId)) {
-      throw new ClientRequestError('Invalid order request.', 400);
+    await enforceClientLimit(admin, signingToken, action === 'respond' ? 'write' : 'read');
+    let operation;
+    if (action === 'respond') {
+      if (typeof body.submissionId !== 'string' || !uuidPattern.test(body.submissionId) ||
+          typeof body.response !== 'string' || !['changes_requested', 'declined'].includes(body.response) ||
+          (body.note !== null && body.note !== undefined && typeof body.note !== 'string')) {
+        throw new ClientRequestError('Invalid client response.', 400);
+      }
+      operation = admin.rpc('fieldsign_submit_client_response_v2', {
+        p_signing_token: signingToken, p_response: body.response,
+        p_note: body.note ?? null, p_submission_id: body.submissionId,
+      });
+    } else if (action === 'order-media') {
+      operation = admin.rpc('signforth_get_order_media', { p_token: signingToken });
+    } else if (action === 'order') {
+      operation = admin.rpc('get_order_for_signing', { p_token: signingToken });
+    } else {
+      operation = admin.rpc('fieldsign_get_link_state', { p_signing_token: signingToken });
     }
-    // Use verified user identity as the budget key, never a supplied owner ID.
-    await enforceClientLimit(admin, identity.user.id, 'read');
-    const { data, error } = await admin.rpc('signforth_get_order_media', {
-      p_order_id: body.orderId, p_owner_id: identity.user.id,
-    });
-    if (error) throw new Error('Order read failed');
-    if (!data) return jsonResponse({ error: 'The signed order is unavailable.' }, 404, origin);
-    return jsonResponse({ data: await authorizeOrderMedia(admin, data) }, 200, origin);
+    const { data, error } = await operation;
+    if (error) {
+      // Preserve business validation messages, without exposing arbitrary SQL errors.
+      const message = error.code === 'P0001' ? error.message : 'Unable to process this authorization. Please try again.';
+      return jsonResponse({ error: message }, error.code === 'P0001' ? 400 : 503, origin);
+    }
+    if (action === 'order-media') {
+      const resolved = await authorizeOrderMedia(admin, data);
+      return jsonResponse({ data: resolved ? [resolved] : [] }, 200, origin);
+    }
+    if (action === 'order' && Array.isArray(data) && data.some(row =>
+      ['contractor_logo','photo_data','photo_data_2','signature_data'].some(field => typeof row[field] === 'string' && row[field].startsWith('sfmedia:')))) {
+      const { data: resolved, error: resolveError } = await admin.rpc('signforth_get_order_media', { p_token: signingToken });
+      if (resolveError) throw new Error('Media authorization failed');
+      return jsonResponse({ data: resolved ? [await inlineOrderMedia(admin, resolved)] : [] }, 200, origin);
+    }
+    return jsonResponse({ data }, 200, origin);
   } catch (error) {
     if (error instanceof ClientRequestError) return jsonResponse({ error: error.message }, error.status, origin, error.retryAfter);
-    return jsonResponse({ error: 'Unable to load this order. Please try again.' }, 503, origin);
+    return jsonResponse({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, origin);
   }
 });

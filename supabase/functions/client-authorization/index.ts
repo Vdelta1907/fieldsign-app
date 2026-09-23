@@ -1,4 +1,4 @@
-import { authorizeOrderMedia } from '../_shared/order-media.ts';
+import { authorizeOrderMedia, inlineOrderMedia } from '../_shared/order-media.ts';
 import { ClientRequestError, enforceClientLimit, readClientBody } from '../_shared/client-limits.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -104,6 +104,12 @@ Deno.serve(async (request) => {
     if (action === 'order-media') {
       const resolved = await authorizeOrderMedia(admin, data);
       return jsonResponse({ data: resolved ? [resolved] : [] }, 200, origin);
+    }
+    if (action === 'order' && Array.isArray(data) && data.some(row =>
+      ['contractor_logo','photo_data','photo_data_2','signature_data'].some(field => typeof row[field] === 'string' && row[field].startsWith('sfmedia:')))) {
+      const { data: resolved, error: resolveError } = await admin.rpc('signforth_get_order_media', { p_token: signingToken });
+      if (resolveError) throw new Error('Media authorization failed');
+      return jsonResponse({ data: resolved ? [await inlineOrderMedia(admin, resolved)] : [] }, 200, origin);
     }
     return jsonResponse({ data }, 200, origin);
   } catch (error) {

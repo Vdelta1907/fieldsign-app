@@ -1,9 +1,9 @@
-# SignForth — dashboard pagination update
+# SignForth — targeted new-upload storage update
 
-September 22, 2026: start with **docs/DASHBOARD-PAGINATION.md** for the current targeted deployment. Run only `supabase/migrations/202609220001_dashboard_pagination.sql` before deploying the listed frontend files.
+September 23, 2026. Start with **docs/NEW-UPLOADS-DEPLOYMENT.md**. This release is prepared locally, not yet deployed.
 
-This update adds 10-order batches, a clickable attention banner, newest-first category resets and declined orders under Pending. Only the files listed in the new guide need uploading to the existing GitHub repository.
+Deploy only the new **202609230001_future_private_media.sql** migration with writes initially disabled, then the three standalone Edge Functions named in the guide, then the targeted GitHub/frontend files. Verify readers/original fingerprints before running the separate enable script. Existing private-media stage 1 and pagination deployments remain credited; do not repeat their migrations or preparation batches.
 
-Private-media stage 1 and its authorization correction were already deployed and user-tested in the preceding checkpoint. The older private-media deployment and preparation-auth guides remain as history; do not repeat their migrations, preparation batches, Edge Function deployments or temporary-secret setup for pagination. The temporary diagnostic function and preparation secret were removed after the earlier tests.
+No new secrets are required. Keep approved branding, logo processing, email verification, payments, signed originals and iPhone/dashboard behavior. Use the write-disable script if necessary; keep reference-aware readers installed after new references exist.
 
-The pagination update has passed local tests/build/typecheck. Its hosted deployment and live acceptance checks remain pending. Full Gate 4 remains in progress. Keep existing environment variables, signing/payment flows, email verification and logo/iPhone behavior.
+The package manifest identifies every replaced/added file. Tests/build/typechecks are local evidence; user deployment/live checks remain pending. Full Gate 4 remains in progress.

@@ -119,6 +119,21 @@ export async function prepareNextSignedMedia(admin: SupabaseClient): Promise<boo
   return true;
 }
 
+// Compatibility for a client using the earlier inline order gateway operation.
+// Authorization has already been checked by signforth_get_order_media.
+export async function inlineOrderMedia(admin: SupabaseClient, order: Record<string, unknown>) {
+  const result = { ...order };
+  for (const ref of (order._media || []) as MediaReference[]) {
+    const { data, error } = await admin.storage.from(MEDIA_BUCKET).download(ref.path);
+    if (error || !data || data.size !== ref.byteLength || data.size > 8_000_000) throw new Error('Media download failed');
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    if (await mediaHash(bytes) !== ref.sha256) throw new Error('Media verification failed');
+    result[ref.field] = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  }
+  delete result._media;
+  return result;
+}
+
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const appUrl = Deno.env
@@ -223,6 +238,12 @@ Deno.serve(async (request) => {
     if (action === 'order-media') {
       const resolved = await authorizeOrderMedia(admin, data);
       return jsonResponse({ data: resolved ? [resolved] : [] }, 200, origin);
+    }
+    if (action === 'order' && Array.isArray(data) && data.some(row =>
+      ['contractor_logo','photo_data','photo_data_2','signature_data'].some(field => typeof row[field] === 'string' && row[field].startsWith('sfmedia:')))) {
+      const { data: resolved, error: resolveError } = await admin.rpc('signforth_get_order_media', { p_token: signingToken });
+      if (resolveError) throw new Error('Media authorization failed');
+      return jsonResponse({ data: resolved ? [await inlineOrderMedia(admin, resolved)] : [] }, 200, origin);
     }
     return jsonResponse({ data }, 200, origin);
   } catch (error) {

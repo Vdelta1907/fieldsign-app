@@ -1,3 +1,4 @@
+import { storeVerifiedUpload, uploadsEnabled } from '../_shared/future-media.ts';
 import { ClientRequestError, enforceClientLimit, readClientBody } from '../_shared/client-limits.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -182,12 +183,24 @@ Deno.serve(async (request) => {
 
     await enforceClientLimit(admin, signingToken, 'write');
 
+    let storedSignature = signatureData;
+    if (await uploadsEnabled(admin)) {
+      const { data: context, error: contextError } = await admin.rpc('signforth_signature_upload_context', {
+        p_token: signingToken, p_submission: submissionId,
+      });
+      if (contextError) throw new Error('Unable to authorize signature upload');
+      if (!context?.owner_id) return jsonResponse({ error: 'This signing link is invalid, expired, or already used.' }, 400, origin);
+      storedSignature = typeof context.existing_signature === 'string'
+        ? context.existing_signature
+        : await storeVerifiedUpload(admin, context.owner_id, signatureData, true);
+    }
+
     const { data, error } = await admin.rpc(
       'fieldsign_sign_order_with_evidence',
       {
         p_token: signingToken,
         p_signer_name: signerName,
-        p_signature_data: signatureData,
+        p_signature_data: storedSignature,
         p_consent_text: consentText,
         p_payment_requested:
           paymentRequested,
