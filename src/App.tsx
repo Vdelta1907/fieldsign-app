@@ -708,7 +708,7 @@ const prepareOrderImages = async () => {
   return { logo, photo1, photo2 };
 };
 
-const persistContractorProfile = async () => {
+const persistContractorProfile = async (markOnboardingComplete = false) => {
   if (!session || !isCurrent() || !profileReady) throw new Error('Your profile is not ready. Reload and try again.');
 
   if (
@@ -727,6 +727,7 @@ const persistContractorProfile = async () => {
     .upsert(
       {
         user_id: session.user.id,
+        ...(markOnboardingComplete ? { onboarding_complete: true } : {}),
         company_name:
           profile.companyName.trim() || 'SignForth Contractor',
         license_number: profile.licenseNumber.trim() || null,
@@ -774,7 +775,7 @@ const persistContractorProfile = async () => {
   setIsSavingProfile(true);
 
   try {
-    await persistContractorProfile();
+    await persistContractorProfile(true);
     setView('dashboard');
   } catch (error: unknown) {
     console.error('Settings save failed:', error);
