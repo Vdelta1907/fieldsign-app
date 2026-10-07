@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { Eye, EyeOff, KeyRound, Mail, TriangleAlert } from 'lucide-react';
 import { supabase as authClient } from '../lib/supabase';
+import { AccountExportButton } from './AccountExportButton';
 
 type AccountAction = 'email' | 'password' | 'request-deletion';
 
@@ -37,6 +38,7 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
   };
 
   const openPanel = (action: AccountAction) => {
+    if (busy) return;
     if (action === 'request-deletion' && !window.confirm(
       'Request account deletion?\n\nThis starts a review. Signed authorizations and payment records may need to be retained. Your Stripe account will not be deleted. Continue?',
     )) return;
@@ -80,17 +82,29 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
     <p>Choose the account detail you want to manage. Business information is managed separately in Branding &amp; Stripe Setup.</p>
 
     {!panel && <div className="account-actions" aria-label="Account actions">
-      <button className="account-action" type="button" onClick={() => openPanel('email')}>
-        <Mail size={20} aria-hidden="true" /><span><strong>Change email address</strong><small>Update the email used to sign in.</small></span>
-      </button>
-      <button className="account-action" type="button" onClick={() => openPanel('password')}>
-        <KeyRound size={20} aria-hidden="true" /><span><strong>Change password</strong><small>Create a new SignForth password.</small></span>
-      </button>
-      <button className="account-action danger" type="button" onClick={() => openPanel('request-deletion')}>
-        <TriangleAlert size={20} aria-hidden="true" /><span><strong>Request account deletion</strong><small>Submit your account for deletion review.</small></span>
-      </button>
-    </div>}
+  <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('email')}>
+    <Mail size={20} aria-hidden="true" />
+    <span><strong>Change email address</strong><small>Update the email used to sign in.</small></span>
+  </button>
 
+  <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('password')}>
+    <KeyRound size={20} aria-hidden="true" />
+    <span><strong>Change password</strong><small>Create a new SignForth password.</small></span>
+  </button>
+
+  <button className="account-action danger" type="button" disabled={busy} onClick={() => openPanel('request-deletion')}>
+    <TriangleAlert size={20} aria-hidden="true" />
+    <span><strong>Request account deletion</strong><small>Submit your account for deletion review.</small></span>
+  </button>
+
+  <AccountExportButton
+    client={client}
+    accountId={session.user.id}
+    isCurrent={isCurrent}
+    busy={busy}
+    onBusyChange={setBusy}
+  />
+</div>}
     {panel === 'email' && <form className="account-panel" onSubmit={e => { e.preventDefault(); void submit('email'); }}>
       <h3><Mail size={20} aria-hidden="true" /> Change email address</h3>
       <SecretInput id="email-current-password" label="Current password" value={currentPassword} onChange={setCurrentPassword} required={false} />
