@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hydrateOrderMedia } from './orderMedia';
 import { ExportZip, type ExportSink } from './exportZip';
-const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value, null, 2));
 const sections = ['profile', 'orders', 'revisions', 'activity', 'evidence', 'deletion_request'] as const;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const hashPattern = /^[a-f0-9]{64}$/;
@@ -25,8 +24,11 @@ export async function exportAccount({ client, accountId, isCurrent, signal, sink
 }) {
   const started = new Date().toISOString();
   const counts: Record<string, number> = {};
-  const media = new Map<string, { bytes: number; file: string }>();
+  const media = new Map<string, { bytes: number }>();
+  const orderTitles = new Map<string, string>();
   const expected = new Map<string, number>();
+  const pageImages = new Map<string, string>();
+  let signedAgreements = 0;
   const check = () => {
     if (signal.aborted || !isCurrent()) throw new DOMException('Export cancelled or account changed.', 'AbortError');
   };
@@ -46,20 +48,17 @@ export async function exportAccount({ client, accountId, isCurrent, signal, sink
     if (bytes.length > 8_000_000) throw new Error('An image exceeds the supported export size. Export stopped.');
     const key = await hash(bytes);
     if (expectedHash && key !== expectedHash) throw new Error('Image verification failed. Export stopped.');
+    pageImages.set(key, source);
     if (media.has(key)) return;
     const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(source);
     if (!match) throw new Error('An image has an unsupported or damaged format. Export stopped.');
-    const decoded = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0));
-    const file = `media/${key}.${match[1] === 'jpeg' ? 'jpg' : 'png'}`;
-    await zip.add(file, decoded);
-    // Keep the original data-URL bytes too, so evidence hashes remain reproducible.
-    await zip.add(`media/${key}.txt`, bytes);
-    media.set(key, { bytes: bytes.length, file });
+    atob(match[2]);
+    media.set(key, { bytes: bytes.length });
   };
-  const resolve = async (reference: string) => {
+  const resolve = async (reference: string, needSource = false) => {
     const key = refPattern.exec(reference)?.[1];
     if (!key) throw new Error('Invalid private image reference. Export stopped.');
-    if (media.has(key)) return;
+    if (media.has(key) && (!needSource || pageImages.has(key))) return;
     for (let attempt = 0; attempt < 4; attempt++) {
       check();
       const timeout = AbortSignal.timeout(30_000);
@@ -102,11 +101,26 @@ export async function exportAccount({ client, accountId, isCurrent, signal, sink
       }
     }
   };
+  const imagesFor = async (record: Record<string, unknown>) => {
+    const images: Record<string, string> = {};
+    for (const field of ['contractor_logo', 'photo_data', 'photo_data_2', 'signature_data', 'logo_data_url']) {
+      const source = record[field];
+      if (!source) { images[field] = ''; continue; }
+      if (typeof source !== 'string') throw new Error('Invalid saved image. Export stopped.');
+      if (refPattern.test(source)) { await resolve(source, true); images[field] = pageImages.get(source.slice(11)) || ''; }
+      else images[field] = source;
+    }
+    return images;
+  };
+  const filename = (section: string, title: string) => {
+    const slug = title.normalize('NFKD').replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/ +/g, '-').slice(0, 90) || 'Record';
+    return `${String(counts[section] + 1).padStart(3, '0')}-${slug}.pdf`;
+  };
   try {
     for (const section of sections) {
       let after: string | null = null; counts[section] = 0;
       while (true) {
-        check(); progress(`Exporting ${section.replace('_', ' ')}: ${counts[section]} records…`);
+        check(); progress(`Exporting ${{ profile: 'business profile', orders: 'orders', revisions: 'order revisions', activity: 'order activity', evidence: 'signing records', deletion_request: 'account requests' }[section]}: ${counts[section]} records…`);
         const { data, error } = await client.rpc('signforth_export_account_page', { p_section: section, p_after: after })
           .abortSignal(AbortSignal.any([signal, AbortSignal.timeout(60_000)]));
         check();
@@ -121,8 +135,48 @@ export async function exportAccount({ client, accountId, isCurrent, signal, sink
             throw new Error('Signing evidence could not be verified. Export stopped; contact support.');
           }
         }
+        pageImages.clear();
         await scan(data.record); check();
-        await zip.add(`${section}/${data.next}.json`, encode(data.record));
+        const { signedAgreementPdf, accountReportPdf } = await import('./accountExportPdf');
+        const record = data.record;
+        const title = String(record.project_title || record.company_name || orderTitles.get(record.order_id) || 'Account record');
+        if (section === 'orders') orderTitles.set(data.next, title);
+        if (section === 'orders' && record.status === 'signed') {
+          progress('Preparing signed agreement PDF…');
+          const { data: proofs, error: proofError } = await client.from('order_authorization_evidence')
+            .select('order_id,owner_id,revision_number,evidence_snapshot,document_hash,hash_algorithm,signer_name,signed_at_utc')
+            .eq('order_id', data.next).eq('owner_id', accountId).eq('revision_number', data.record.revision_number)
+            .limit(2).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(60_000)]));
+          check();
+          if (proofError || !Array.isArray(proofs) || proofs.length > 1) throw new Error('Signing records could not be read. Export stopped.');
+          const proof = proofs[0] || null;
+          if (proof && (proof.order_id !== data.next || proof.owner_id !== accountId || proof.revision_number !== data.record.revision_number)) throw new Error('Signing record does not match the order. Export stopped.');
+          const images = await imagesFor(record);
+          // Bind each displayed image to the saved signing evidence when present.
+          if (proof) {
+            const e = proof.evidence_snapshot;
+            const refs = [e?.contractor?.displayed_logo, e?.photos?.[0], e?.photos?.[1],
+              e?.signature ? { sha256: e.signature.signature_sha256, byte_length: e.signature.signature_byte_length } : null];
+            for (const [i, field] of ['contractor_logo', 'photo_data', 'photo_data_2', 'signature_data'].entries()) {
+              const bytes = new TextEncoder().encode(images[field]);
+              const ref = refs[i];
+              if (ref ? bytes.length !== ref.byte_length || await hash(bytes) !== ref.sha256 : !!images[field]) throw new Error('Signed agreement images do not match the signing record. Export stopped.');
+            }
+          }
+          const pdf = await signedAgreementPdf(data.record, proof, images);
+          check(); await zip.add(`Signed-agreements/${filename(section, title)}`, pdf); signedAgreements++;
+        } else if (section === 'orders' || section === 'revisions') {
+          const content = section === 'orders' ? record : record.snapshot;
+          if (!content || typeof content !== 'object') throw new Error('The saved order record is unavailable. Export stopped.');
+          const images = await imagesFor(content);
+          const pdf = await signedAgreementPdf(content, null, images, false);
+          check(); await zip.add(`${section === 'orders' ? 'Other-orders' : 'Order-revisions'}/${filename(section, title)}`, pdf);
+        } else {
+          const labels: Record<string, string> = { profile: 'Business profile', activity: 'Order activity', evidence: 'Signing record', deletion_request: 'Account request' };
+          const images = section === 'profile' ? await imagesFor(record) : {};
+          const pdf = await accountReportPdf(labels[section], { ...(record.order_id ? { project: orderTitles.get(record.order_id) || 'Order record', order_reference: String(record.order_id).slice(0, 8) } : {}), ...record }, images.logo_data_url || '');
+          check(); await zip.add(`Account-records/${section}-${filename(section, title)}`, pdf);
+        }
         counts[section]++; after = data.next;
       }
     }
@@ -130,10 +184,17 @@ export async function exportAccount({ client, accountId, isCurrent, signal, sink
       if (media.get(key)?.bytes !== bytes) throw new Error('An image referenced by signing evidence is missing or differs. Export stopped; contact support.');
     }
     check();
-    await zip.add('README.txt', new TextEncoder().encode(`SignForth account export v1\n\nRecords are JSON files, grouped by section. Orders include retained archived orders.\nMedia contains viewable PNG/JPEG files and original data-URL .txt files.\nsfmedia:v1:<hash> resolves to media/<hash>.txt; image hashes cover the .txt bytes.\nSigning evidence includes original PostgreSQL canonical snapshot text for document-hash verification.\nPayment state is included; Stripe credentials, checkout links, signing tokens, authentication secrets, raw payment-provider events and internal operational registries are excluded.\n\nThis is a live, paginated account export, NOT a point-in-time database backup.\nRecords were read between the times in manifest.json. Concurrent edits, new orders or deletions may affect coverage and consistency. Avoid changes during export.\nIndividual signed PDFs remain available through the existing order download action.\nKeep this archive private: it contains client details and signatures.\n`));
-    await zip.add('manifest.json', encode({ format: 'signforth.account-export.v1', account_id: accountId,
-      started_at: started, finished_at: new Date().toISOString(), consistency: 'live-paginated-not-atomic',
-      archived_orders_included: true, counts, media: Object.fromEntries(media) }));
+    counts.signed_agreements = signedAgreements;
+    const { accountReportPdf } = await import('./accountExportPdf');
+    await zip.add('START-HERE.pdf', await accountReportPdf('Your account export', {
+      welcome: 'Your records are ready to open, print or share. Every file in this download is a PDF.',
+      signed_agreements: `${signedAgreements} complete signed agreements, with saved signatures, terms and photos. Open the Signed-agreements folder. Retained archived agreements are included.`,
+      other_orders: `${counts.orders - signedAgreements} other order records. These are not signed agreements. Open Other-orders if present.`,
+      order_revisions: `${counts.revisions} saved revisions. Open Order-revisions if present.`,
+      account_records: 'Business profile, activity, signing records and any account deletion request are in Account-records.',
+      export_started: started, export_finished: new Date().toISOString(),
+      note: 'These documents are generated copies of your saved records, not new signatures. Records were collected during export; changes made at the same time may not be included. Keep this download private: it contains client details and signatures.',
+    }));
     check(); await zip.finish();
     return counts;
   } catch (error) {

@@ -21,7 +21,7 @@ export function AccountExportButton({ client, accountId, isCurrent, busy, onBusy
       const sink = await chooseExportSink(`SignForth-export-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`);
       await exportAccount({ client, accountId, isCurrent, sink, signal: controller.signal,
         progress: text => { if (!controller.signal.aborted && isCurrent()) setMessage(text); } });
-      if (isCurrent() && !controller.signal.aborted) setMessage('Export prepared and sent to your browser. Check your saved ZIP file.');
+      if (isCurrent() && !controller.signal.aborted) setMessage('Export ready. Unzip the download and open START-HERE.pdf to browse your records.');
     } catch (error) {
       if (isCurrent()) setMessage(error instanceof DOMException && error.name === 'AbortError'
         ? 'Export cancelled. No complete export was created.'
@@ -34,9 +34,9 @@ export function AccountExportButton({ client, accountId, isCurrent, busy, onBusy
   return <div>
     <button className="account-action" type="button" disabled={busy} onClick={() => void download()}>
       <Download size={20} aria-hidden="true" /><span><strong>Download my account data</strong>
-        <small>Orders, including retained archived orders, history, signing evidence and images.</small></span>
+        <small>Complete signed agreements, other orders and account records, including retained archived orders.</small></span>
     </button>
-    <p>A ZIP download of your records and images. Avoid editing orders during export. For large accounts, use desktop Chrome or Edge.</p>
+    <p>A ZIP download of ready-to-use PDF documents, including complete signed agreements. Avoid editing orders during export. For large accounts, use desktop Chrome or Edge.</p>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {running && <button className="btn-secondary" type="button" onClick={() => task.current?.abort()}>Cancel export</button>}
   </div>;
