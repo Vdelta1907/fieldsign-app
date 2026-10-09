@@ -3,7 +3,11 @@ type Data = Record<string, unknown>;
 const obj = (v: unknown): Data => v && typeof v === 'object' && !Array.isArray(v) ? v as Data : {};
 const str = (v: unknown) => v == null ? '' : String(v);
 const pdfText = (v: unknown) => {
-  const text = str(v);
+  // Copyright/registered/trademark emoji presentation selectors affect appearance,
+  // not wording. Print their standard text glyphs with this PDF's text font.
+  // Do not strip selectors globally: other Unicode sequences can be meaningful.
+  // Only the rendering copy changes; saved records/evidence remain untouched.
+  const text = str(v).replace(/([©®™])[\uFE0E\uFE0F]/gu, '$1');
   if (/[^\t\n\r\x20-\xff\u2013-\u2014\u2018-\u201a\u201c-\u201e\u2020-\u2022\u2026\u2030\u2039-\u203a\u20ac\u2122]/u.test(text)) {
     throw new Error('A record contains characters this PDF export cannot yet render accurately. Export stopped; contact support.');
   }
