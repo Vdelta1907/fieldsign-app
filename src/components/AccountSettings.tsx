@@ -39,15 +39,12 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
 
   const openPanel = (action: AccountAction) => {
     if (busy) return;
-    if (action === 'request-deletion' && !window.confirm(
-      'Request account deletion?\n\nThis starts a review. Signed authorizations and payment records may need to be retained. Your Stripe account will not be deleted. Continue?',
-    )) return;
     closePanel();
     setPanel(action);
   };
 
   const submit = async (action: AccountAction) => {
-    if (lock.current || !isCurrent()) return;
+    if (busy || lock.current || !isCurrent()) return;
     if (!currentPassword) { window.alert('Enter your current password to confirm your identity.'); return; }
     if (action === 'password' && (password.length < 8 || password !== confirmPassword)) {
       window.alert('Use at least 8 characters and matching passwords.'); return;
@@ -82,29 +79,18 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
     <p>Choose the account detail you want to manage. Business information is managed separately in Branding &amp; Stripe Setup.</p>
 
     {!panel && <div className="account-actions" aria-label="Account actions">
-  <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('email')}>
-    <Mail size={20} aria-hidden="true" />
-    <span><strong>Change email address</strong><small>Update the email used to sign in.</small></span>
-  </button>
+      <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('email')}>
+        <Mail size={20} aria-hidden="true" /><span><strong>Change email address</strong><small>Update the email used to sign in.</small></span>
+      </button>
+      <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('password')}>
+        <KeyRound size={20} aria-hidden="true" /><span><strong>Change password</strong><small>Create a new SignForth password.</small></span>
+      </button>
+      <button className="account-action danger" type="button" disabled={busy} onClick={() => openPanel('request-deletion')}>
+        <TriangleAlert size={20} aria-hidden="true" /><span><strong>Request account deletion</strong><small>Submit your account for deletion review.</small></span>
+      </button>
+      <AccountExportButton client={client} accountId={session.user.id} isCurrent={isCurrent} busy={busy} onBusyChange={setBusy} />
+    </div>}
 
-  <button className="account-action" type="button" disabled={busy} onClick={() => openPanel('password')}>
-    <KeyRound size={20} aria-hidden="true" />
-    <span><strong>Change password</strong><small>Create a new SignForth password.</small></span>
-  </button>
-
-  <button className="account-action danger" type="button" disabled={busy} onClick={() => openPanel('request-deletion')}>
-    <TriangleAlert size={20} aria-hidden="true" />
-    <span><strong>Request account deletion</strong><small>Submit your account for deletion review.</small></span>
-  </button>
-
-  <AccountExportButton
-    client={client}
-    accountId={session.user.id}
-    isCurrent={isCurrent}
-    busy={busy}
-    onBusyChange={setBusy}
-  />
-</div>}
     {panel === 'email' && <form className="account-panel" onSubmit={e => { e.preventDefault(); void submit('email'); }}>
       <h3><Mail size={20} aria-hidden="true" /> Change email address</h3>
       <SecretInput id="email-current-password" label="Current password" value={currentPassword} onChange={setCurrentPassword} required={false} />
@@ -124,14 +110,18 @@ export function AccountSettings({ session, client, isCurrent, onBack }: {
       <div className="account-panel-actions"><button className="btn-primary" type="submit" disabled={busy}>{activeAction === 'password' ? 'Updating password…' : 'Update password'}</button><button className="btn-secondary" type="button" disabled={busy} onClick={closePanel}>Cancel</button></div>
     </form>}
 
-    {panel === 'request-deletion' && <form className="account-panel account-danger" onSubmit={e => { e.preventDefault(); void submit('request-deletion'); }}>
+    {panel === 'request-deletion' && <div>
+      <h3>Save your records before deletion</h3>
+      <p>Download and open your signed agreements and account records before continuing. Keep your own copies; permanently deleted records cannot be recovered through your account. Exporting is recommended, not required.</p>
+      <AccountExportButton client={client} accountId={session.user.id} isCurrent={isCurrent} busy={busy} onBusyChange={setBusy} />
+      <form className="account-panel account-danger" onSubmit={e => { e.preventDefault(); void submit('request-deletion'); }}>
       <h3><TriangleAlert size={22} aria-hidden="true" /> Account deletion</h3>
       <p>Your request will be reviewed. Signed authorizations, payment records, and evidence may need to be retained. This does not delete your Stripe account.</p>
       <SecretInput id="deletion-current-password" label="Current password" value={currentPassword} onChange={setCurrentPassword} required={false} />
       <label htmlFor="delete-confirmation">Type DELETE to confirm your request</label>
       <input id="delete-confirmation" value={confirmation} onChange={e => setConfirmation(e.target.value)} required autoComplete="off" />
       <div className="account-panel-actions"><button className="account-delete" type="submit" disabled={busy || confirmation !== 'DELETE'}>{activeAction === 'request-deletion' ? 'Submitting request…' : 'Confirm deletion request'}</button><button className="btn-secondary" type="button" disabled={busy} onClick={closePanel}>Cancel</button></div>
-    </form>}
+    </form></div>}
 
     <button className="btn-secondary account-back" type="button" disabled={busy} onClick={onBack}>Return to dashboard</button>
   </section>;

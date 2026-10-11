@@ -1,0 +1,18 @@
+/* Dedicated styles keep the export action prominent in either account panel. */
+.account-action.account-export-button { background: #f59e0b; border: 2px solid #fbbf24; color: #111827; padding: 20px; min-height: 96px; }
+.account-action.account-export-button strong { font-size: 18px; }
+.account-action.account-export-button small { color: #172033; font-size: 13px; }
+.account-action.account-export-button > svg { color: inherit; }
+.account-action.account-export-button:hover { background: #fbbf24; }
+.account-action.account-export-button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.account-action.account-export-button:disabled { opacity: 1; cursor: wait; }
+.account-action.account-export-button.export-complete { background: #15803d; border-color: #4ade80; color: #fff; }
+.account-action.account-export-button.export-complete small { color: #fff; }
+.account-action.account-export-button.export-complete:hover { background: #166534; }
+.account-export .export-status { font-weight: 600; overflow-wrap: anywhere; }
+.export-spinner { animation: export-spin 1s linear infinite; }
+.export-progress { height: 8px; margin-top: 12px; overflow: hidden; border-radius: 8px; background: #334155; }
+.export-progress > span { display: block; height: 100%; width: 35%; background: #fbbf24; border-radius: inherit; animation: export-progress 1.6s ease-in-out infinite alternate; }
+@keyframes export-spin { to { transform: rotate(360deg); } }
+@keyframes export-progress { from { transform: translateX(0); } to { transform: translateX(185%); } }
+@media (prefers-reduced-motion: reduce) { .export-spinner, .export-progress > span { animation: none; } }
