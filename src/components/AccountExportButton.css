@@ -16,3 +16,12 @@
 @keyframes export-spin { to { transform: rotate(360deg); } }
 @keyframes export-progress { from { transform: translateX(0); } to { transform: translateX(185%); } }
 @media (prefers-reduced-motion: reduce) { .export-spinner, .export-progress > span { animation: none; } }
+
+.account-export .export-help { color: #cbd5e1; font-size: 14px; line-height: 1.6; margin: 14px 0; }
+.account-export .export-status { display: flex; align-items: flex-start; gap: 12px; margin: 16px 0; }
+.account-export .export-status > svg { flex: 0 0 auto; margin-top: 2px; }
+.account-export .export-status strong { display: block; font-size: 17px; margin-bottom: 6px; }
+.account-export .export-status p { color: inherit; margin: 0; font-size: 15px; line-height: 1.6; font-weight: 500; }
+.account-export .export-warning { background: #422006; color: #fef3c7; border: 2px solid #fbbf24; border-left-width: 6px; border-radius: 12px; padding: 18px; }
+.account-export .export-warning > svg, .account-export .export-warning strong { color: #fcd34d; }
+.account-export .export-success { background: #052e16; color: #dcfce7; border: 1px solid #4ade80; border-radius: 12px; padding: 18px; }
