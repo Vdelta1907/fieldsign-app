@@ -1,3 +1,4 @@
+import { ClosureCheck } from './ClosureCheck';
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import App from '../App';
@@ -105,6 +106,7 @@ export default function SessionBoundary() {
     window.history.replaceState({}, '', window.location.pathname);
   }} />;
   if (!session && !clientToken) return <AuthScreen />;
+  if (session && !clientToken && params.get('closure-check') === '1') return <ClosureCheck />;
   const generation = epoch;
   return <App key={clientToken ? 'client' : `${session!.user.id}:${epoch}`}
     session={session} clientToken={clientToken}
