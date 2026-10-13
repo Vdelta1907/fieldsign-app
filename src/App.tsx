@@ -1,3 +1,4 @@
+import { AccountAccessUnavailable, requireProfileAccess } from './lib/accountAccess';
 import { uploadPrivateImage, resolvePrivateImages } from './lib/privateUploads';
 import { useDashboardOrders, matchesDashboardCategory } from './hooks/useDashboardOrders';
 import type { DashboardCategory } from './hooks/useDashboardOrders';
@@ -720,6 +721,8 @@ const persistContractorProfile = async (markOnboardingComplete = false) => {
     );
   }
 
+  await requireProfileAccess(supabase);
+  if (!isCurrent()) throw new Error('Your session changed. Sign in again.');
   const storedLogo = await uploadPrivateImage(supabase, profile.logoDataUrl || null);
   if (!isCurrent()) throw new Error('Your session changed. Sign in again.');
   const { error } = await supabase
@@ -746,7 +749,13 @@ const persistContractorProfile = async (markOnboardingComplete = false) => {
       { onConflict: 'user_id' }
     );
 
-  if (error) throw error;
+  if (error) {
+    // Closure may occur after the initial check; identify it without masking other failures.
+    try { await requireProfileAccess(supabase); } catch (accessError) {
+      if (accessError instanceof AccountAccessUnavailable) throw accessError;
+    }
+    throw error;
+  }
 };
   const saveSettingsAndReturn = async () => {
   if (profileSaveInProgress.current) return;
@@ -778,6 +787,10 @@ const persistContractorProfile = async (markOnboardingComplete = false) => {
     await persistContractorProfile(true);
     setView('dashboard');
   } catch (error: unknown) {
+    if (error instanceof AccountAccessUnavailable) {
+      alert(error.message);
+      return;
+    }
     console.error('Settings save failed:', error);
 
     const message =
