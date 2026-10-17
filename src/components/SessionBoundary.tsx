@@ -1,4 +1,4 @@
-import { ClosureCheck } from './ClosureCheck';
+import { ClosureCheck, CheckoutClosureCheck } from './ClosureCheck';
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import App from '../App';
@@ -107,6 +107,7 @@ export default function SessionBoundary() {
   }} />;
   if (!session && !clientToken) return <AuthScreen />;
   if (session && !clientToken && params.get('closure-check') === '1') return <ClosureCheck />;
+  if (session && !clientToken && params.get('payment-closure-check') === '1') return <CheckoutClosureCheck />;
   const generation = epoch;
   return <App key={clientToken ? 'client' : `${session!.user.id}:${epoch}`}
     session={session} clientToken={clientToken}
