@@ -1,6 +1,12 @@
 import { hydrateOrderMedia, MediaDownloadError } from './orderMedia';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+export class ClientAccountUnavailableError extends Error {
+  constructor() {
+    super('This authorization is unavailable because the contractor’s account access is currently blocked. Please contact your contractor for assistance.');
+  }
+}
+
 export class ClientRateLimitError extends Error {
   retryAfter: number;
   constructor(retryAfter: number) {
@@ -43,6 +49,9 @@ export async function clientAuthorization(
     }
     if ('context' in error && error.context instanceof Response) {
       const body = await error.context.clone().json().catch(() => null);
+      if (error.context.status === 403 && body?.error === 'This account is unavailable.') {
+        return { data: null, error: new ClientAccountUnavailableError() };
+      }
       if (error.context.status === 429) {
         const seconds = Math.min(60, Math.max(1, Number(error.context.headers.get('Retry-After')) || 60));
         limits.set(key, Date.now() + seconds * 1000);
