@@ -1,3 +1,4 @@
+import { agreementSignedDate } from './lib/agreementDates';
 import { AccountAccessUnavailable, requireProfileAccess } from './lib/accountAccess';
 import { uploadPrivateImage, resolvePrivateImages } from './lib/privateUploads';
 import { useDashboardOrders, matchesDashboardCategory } from './hooks/useDashboardOrders';
@@ -2578,7 +2579,7 @@ if (!result?.signed_at_utc) {
     const dSig = targetDoc?.sig || signatureData;
     const dPhoto1 = targetDoc?.photo1 || photoData1;
     const dPhoto2 = targetDoc?.photo2 || photoData2;
-    const dTimestamp = targetDoc?.date || signTimestamp;
+    const dTimestamp = targetDoc ? targetDoc.date : signTimestamp;
     const dId = targetDoc?.docId || currentOrderId;
     const dPaid = targetDoc?.isPaid !== undefined ? targetDoc.isPaid : (paymentStatus === 'paid');
 
@@ -2638,7 +2639,7 @@ if (!result?.signed_at_utc) {
     doc.text(`Project: ${dProject}`, 52, 122);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(`Ref: ${dId ? dId.slice(0, 8) : 'RECORD'}  •  Date: ${new Date().toLocaleDateString()}`, 52, 138);
+    doc.text(`Ref: ${dId ? dId.slice(0, 8) : 'RECORD'}  •  Signed: ${agreementSignedDate(dTimestamp)}`, 52, 138);
 
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(314, 92, 258, 65, 6, 6, 'F');
