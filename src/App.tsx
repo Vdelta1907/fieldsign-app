@@ -8,7 +8,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import './index.css';
 import { useDashboardElasticity } from './hooks/useDashboardElasticity';
-import { clientAuthorization, ClientRateLimitError } from './lib/clientAuthorization';
+import { clientAuthorization, ClientRateLimitError, ClientAccountUnavailableError } from './lib/clientAuthorization';
 import { BRANDING } from './lib/branding';
 import { AccountSettings } from './components/AccountSettings';
 import { createWorkspaceClient } from './lib/workspaceClient';
@@ -1553,6 +1553,7 @@ const loadOrderFromDb = async (signingToken: string) => {
     console.error('Error fetching order:', error);
 
     closeClientAuthorization(
+      error instanceof ClientAccountUnavailableError ? error.message :
       'We could not check this authorization right now. Please check your connection and try opening the link again.'
     );
   }
@@ -2857,7 +2858,9 @@ useEffect(() => {
         );
       }
     } catch (error) {
-      if (!stopped) {
+      if (!stopped && error instanceof ClientAccountUnavailableError) {
+        closeAuthorization(error.message);
+      } else if (!stopped) {
         // A connection failure does not prove that the link closed.
         console.warn(
           'Unable to check authorization status:',
